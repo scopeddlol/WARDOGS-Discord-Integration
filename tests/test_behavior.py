@@ -85,7 +85,7 @@ def test_stop_during_capture_prevents_send(monkeypatch):
     monkeypatch.setattr(bot, "load_state", lambda: (None, None, None))
     monkeypatch.setattr(bot, "is_game_running", lambda: True)
     monkeypatch.setattr(bot, "is_game_foreground", lambda: True)
-    def capture():
+    def capture(**kwargs):
         stop.set()
         return "", "East #1 · ID 123456", "Lonestar", None
     monkeypatch.setattr(bot, "capture_and_parse", capture)
@@ -139,3 +139,24 @@ def test_background_game_is_not_captured(monkeypatch):
     monkeypatch.setattr(bot, 'capture_and_parse', capture)
     bot.run_loop(False, stop)
     capture.assert_not_called()
+
+
+def test_focus_loss_between_regions_discards_reading(monkeypatch):
+    capture = Mock()
+    capture.monitors = [{}, {"left": 0, "top": 0, "width": 1920, "height": 1080}]
+    context = Mock()
+    context.__enter__ = Mock(return_value=capture)
+    context.__exit__ = Mock(return_value=False)
+    monkeypatch.setattr(bot.mss, "MSS", lambda: context)
+    monkeypatch.setattr(bot, "MONITOR_INDEX", 1)
+    monkeypatch.setattr(bot, "is_game_foreground", lambda: False)
+    with pytest.raises(bot.CaptureInterrupted):
+        bot.grab_region("0,0,1,1", require_foreground=True)
+    capture.grab.assert_not_called()
+
+
+def test_malformed_runtime_state_recovers(monkeypatch, tmp_path):
+    path = tmp_path / "last_status.json"
+    path.write_text("[]")
+    monkeypatch.setattr(bot, "STATE_FILE", str(path))
+    assert bot.load_state() == (None, None, None)
