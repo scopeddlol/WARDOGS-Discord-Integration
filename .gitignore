@@ -8,3 +8,11 @@ wardogs_status.log
 # Python
 __pycache__/
 *.pyc
+.venv/
+.pytest_cache/
+build/
+dist/
+vendor/
+*.spec
+!packaging/*.spec
+artifacts/

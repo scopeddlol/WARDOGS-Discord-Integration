@@ -30,6 +30,7 @@ import colorsys
 import json
 import math
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import re
 import subprocess
@@ -52,8 +53,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Scheduler, which doesn't run with SCRIPT_DIR as the current directory.
 load_dotenv(os.path.join(SCRIPT_DIR, ".env"))
 
-STATE_FILE = os.path.join(SCRIPT_DIR, "last_status.json")
-LOG_FILE = os.path.join(SCRIPT_DIR, "wardogs_status.log")
+DATA_DIR = os.getenv("WARDOGS_DATA_DIR", SCRIPT_DIR)
+os.makedirs(DATA_DIR, exist_ok=True)
+STATE_FILE = os.path.join(DATA_DIR, "last_status.json")
+LOG_FILE = os.path.join(DATA_DIR, "wardogs_status.log")
 TRAY_ICON_FILE = os.path.join(SCRIPT_DIR, "tray_icon.png")
 
 TESSERACT_CMD = os.getenv("TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
@@ -116,9 +119,25 @@ DISPLAY_NAME = os.getenv("DISPLAY_NAME", DEFAULT_DISPLAY_NAME)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler(LOG_FILE, encoding="utf-8")],
+    handlers=[logging.StreamHandler(), RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2, encoding="utf-8")],
 )
 log = logging.getLogger("wardogs-status")
+DESKTOP_SETTINGS = None
+
+
+def configure_desktop(settings, ocr_path):
+    """Called only while the worker is stopped; legacy CLI defaults remain supported."""
+    global DESKTOP_SETTINGS, DISCORD_BOT_TOKEN, DISCORD_STATUS_CHANNEL_ID
+    global DISPLAY_NAME, NOT_IN_GAME, MONITOR_INDEX, POLL_INTERVAL_SECONDS, GAME_PROCESS_SUBSTRING
+    global SCORE_UPDATE_INTERVAL_SECONDS, CAPTURE_REGION, TEAM_ICON_REGION, SCORE_REGION
+    DESKTOP_SETTINGS = settings
+    GAME_PROCESS_SUBSTRING = "wardogsclient"
+    DISCORD_BOT_TOKEN, DISCORD_STATUS_CHANNEL_ID = settings.token, settings.channel
+    DISPLAY_NAME, NOT_IN_GAME = settings.name, f"{settings.name} is not in a game"
+    MONITOR_INDEX, POLL_INTERVAL_SECONDS = settings.monitor, settings.poll_seconds
+    SCORE_UPDATE_INTERVAL_SECONDS = settings.score_seconds
+    CAPTURE_REGION, TEAM_ICON_REGION, SCORE_REGION = settings.capture_region, settings.team_region, settings.score_region
+    pytesseract.pytesseract.tesseract_cmd = str(ocr_path)
 
 NAME_RE = re.compile(r"CURRENT\s*SERVER[:.\s]*(.+)", re.IGNORECASE)
 # [I1l] tolerates "ID" getting OCR'd as "1D" (seen in practice), same idea
@@ -159,9 +178,26 @@ def is_game_running() -> bool:
     needle = GAME_PROCESS_SUBSTRING.lower()
     for proc in psutil.process_iter(["name"]):
         name = (proc.info.get("name") or "").lower()
-        if needle in name:
+        if proc.pid != os.getpid() and needle in name:
             return True
     return False
+
+
+def is_game_foreground():
+    """Desktop mode never reads another app while WARDOGS is in the background."""
+    if DESKTOP_SETTINGS is None or sys.platform != "win32":
+        return True
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), ctypes.byref(pid))
+    try:
+        return GAME_PROCESS_SUBSTRING.lower() in psutil.Process(pid.value).name().lower()
+    except psutil.Error:
+        return False
 
 
 def parse_region(region_str: str):
@@ -225,9 +261,9 @@ TEAM_HUE_DEGREES = {"Lonestar": 189, "Valkyra": 0, "Manticore": 120}
 # 1464219389913071646: "blue"/"red"/"green"), re-uploaded into Milk Cult -
 # bots can only render custom emoji from guilds they're a member of.
 TEAM_EMOJIS = {
-    "Lonestar": "<:blue:1548650924782653561>",
-    "Valkyra": "<:red:1549381696560963677>",
-    "Manticore": "<:green:1549381698234482870>",
+    "Lonestar": "🔵",
+    "Valkyra": "🔴",
+    "Manticore": "🟢",
 }
 
 
@@ -302,7 +338,7 @@ def read_scores(img: Image.Image):
             factor = -(-SCORE_DIGITS_MIN_HEIGHT_PX // cell.height)  # ceil
             cell = cell.resize((cell.width * factor, cell.height * factor), Image.LANCZOS)
         cell = ImageOps.autocontrast(cell.convert("L"))
-        text = pytesseract.image_to_string(cell, config="--psm 7 -c tessedit_char_whitelist=0123456789").strip()
+        text = pytesseract.image_to_string(cell, config="--psm 7 -c tessedit_char_whitelist=0123456789", timeout=10).strip()
         if not re.fullmatch(r"\d{3}", text):
             return None
         scores.append(int(text))  # int() drops the leading zeros
@@ -394,6 +430,8 @@ def load_state():
                     updated_at = datetime.fromisoformat(data["updated_at"]).timestamp()
                 except ValueError:
                     pass
+            if data.get("channel_id") != DISCORD_STATUS_CHANNEL_ID:
+                return None, None, None
             return data.get("status"), data.get("message_id"), updated_at
         except (OSError, json.JSONDecodeError):
             return None, None, None
@@ -401,10 +439,12 @@ def load_state():
 
 
 def save_state(status: str, message_id: str):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
+    with open(STATE_FILE + ".tmp", "w", encoding="utf-8") as f:
         json.dump(
-            {"status": status, "message_id": message_id, "updated_at": datetime.now(timezone.utc).isoformat()}, f
+            {"status": status, "message_id": message_id, "channel_id": DISCORD_STATUS_CHANNEL_ID,
+             "updated_at": datetime.now(timezone.utc).isoformat()}, f
         )
+    os.replace(STATE_FILE + ".tmp", STATE_FILE)
 
 
 def _discord_headers():
@@ -419,7 +459,7 @@ EMBED_COLOR_IN_GAME = 0x57F287  # Discord green
 EMBED_COLOR_NOT_IN_GAME = 0x99AAB5  # Discord grey
 
 
-STATUS_EMOJI = "<:blue:1548650924782653561>"  # :blue: from the Wardogs Discord, re-uploaded into Milk Cult
+STATUS_EMOJI = "🎮"  # Standard emoji work in every Discord server.
                                                # since bots can only render custom emoji from guilds they're in
 
 
@@ -459,8 +499,11 @@ def _format_scores(scores) -> str:
 
 
 def _build_embed(text: str, scores=None):
+    if DESKTOP_SETTINGS is not None:
+        from broadcast_policy import filter_status
+        text, scores = filter_status(text, scores, DESKTOP_SETTINGS, NOT_IN_GAME)
     icon = _icon_for(text)
-    display_text = _strip_team_prefix(text)
+    display_text = text
     description = display_text if display_text == NOT_IN_GAME else f"{icon} │ {display_text}"
     if scores:
         description += f"\n\nScore: {_format_scores(scores)}"
@@ -481,11 +524,13 @@ def set_status_message(text: str, message_id: str | None, scores=None):
     headers = _discord_headers()
     # content is explicitly cleared so editing an older plain-text message
     # (from before embeds were added) doesn't leave stale text above the embed.
-    body = {"content": "", "embeds": [_build_embed(text, scores)]}
+    body = {"content": "", "embeds": [_build_embed(text, scores)], "allowed_mentions": {"parse": []}}
 
     if message_id:
         url = f"https://discord.com/api/v10/channels/{DISCORD_STATUS_CHANNEL_ID}/messages/{message_id}"
         resp = requests.patch(url, headers=headers, json=body, timeout=10)
+        if resp.status_code == 404 and resp.json().get("code") == 10008:
+            return set_status_message(text, None, scores)
     else:
         url = f"https://discord.com/api/v10/channels/{DISCORD_STATUS_CHANNEL_ID}/messages"
         resp = requests.post(url, headers=headers, json=body, timeout=10)
@@ -498,7 +543,10 @@ def set_status_message(text: str, message_id: str | None, scores=None):
         new_id = resp.json()["id"]
         log.info("Status message %s to: %s%s", "updated" if message_id else "created", text, f" | scores {scores}" if scores else "")
         return True, None, new_id
-    log.error("Failed to update status message (%s): %s", resp.status_code, resp.text)
+    messages = {401: "Bot token was rejected. Update it in Connection settings.",
+                403: "Allow the bot View Channel, Send Messages and Embed Links in this channel.",
+                404: "Channel not found. Check the channel ID and bot access."}
+    log.error("Discord %s: %s", resp.status_code, messages.get(resp.status_code, "Update failed; will retry."))
     return False, None, message_id
 
 
@@ -513,8 +561,8 @@ def capture_and_parse():
     poll. Callers combine the latest known value of each themselves.
     scores is the (lonestar, valkyra, manticore) HUD scoreboard tuple, or
     None if it isn't readable right now."""
-    img = preprocess(grab_region())
-    text = pytesseract.image_to_string(img)
+    img = preprocess(grab_region(CAPTURE_REGION))
+    text = pytesseract.image_to_string(img, timeout=10)
     if not text.strip():
         # Default page segmentation (--psm 3, full automatic layout
         # analysis) can give up entirely on a busy/noisy background - seen
@@ -522,10 +570,10 @@ def capture_and_parse():
         # detailed rendered scene. --psm 6 is slower but far more reliable
         # there, so it's only worth paying for as a fallback when the fast
         # pass found nothing at all.
-        text = pytesseract.image_to_string(img, config="--psm 6")
+        text = pytesseract.image_to_string(img, config="--psm 6", timeout=10)
     status = determine_status(text)
-    team = detect_team(grab_region(TEAM_ICON_REGION))
-    scores = read_scores(grab_region(SCORE_REGION))
+    team = detect_team(grab_region(TEAM_ICON_REGION)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.team else None
+    scores = read_scores(grab_region(SCORE_REGION)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.scores else None
     return text, status, team, scores
 
 
@@ -569,6 +617,8 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
         stop_event = threading.Event()  # never set - just lets the loop below use one code path
 
     last_status, message_id, last_applied_at = load_state()
+    # Retain the message identity, but never rebroadcast stale match details after launch.
+    last_status = None
     if last_applied_at is None:
         last_applied_at = time.time()
     log.info("Watching for '%s' process. Last known status: %s", GAME_PROCESS_SUBSTRING, last_status)
@@ -580,11 +630,10 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
     pending_status = None
     pending_count = 0
     cooldown_until = 0.0
-    game_was_running = False
 
     def apply(status):
         nonlocal last_status, message_id, cooldown_until, last_applied_at, last_applied_scores
-        if time.time() < cooldown_until:
+        if stop_event.is_set() or time.time() < cooldown_until:
             return  # still cooling down from a rate limit, try again later
         scores = last_known_scores if is_in_match(status) else None
         if dry_run:
@@ -599,6 +648,7 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
                 cooldown_until = time.time() + retry_after
                 return
             else:
+                cooldown_until = time.time() + 30
                 return
         last_applied_at = time.time()
         last_applied_scores = scores
@@ -623,6 +673,9 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
         try:
             running = is_game_running()
             if running:
+                if not is_game_foreground():
+                    stop_event.wait(POLL_INTERVAL_SECONDS)
+                    continue
                 _, server_status, team, scores = capture_and_parse()
 
                 if server_status is not None:
@@ -631,6 +684,7 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
                         last_known_scores = None
                         pending_scores = None
                         pending_scores_count = 0
+                        last_known_team = None
                     last_known_server_status = server_status
                     if server_status == NOT_IN_GAME:
                         last_known_team = None  # don't carry a stale team into the next match
@@ -656,7 +710,7 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
                 if candidate and pending_count >= 2 and candidate != last_status:
                     apply(candidate)
                 elif (
-                    is_in_match(last_status)
+                    candidate == last_status and is_in_match(last_status)
                     and last_known_scores != last_applied_scores
                     and time.time() - last_applied_at >= SCORE_UPDATE_INTERVAL_SECONDS
                 ):
@@ -670,15 +724,14 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
                 last_known_scores = None
                 pending_scores = None
                 pending_scores_count = 0
-                if game_was_running and last_status != NOT_IN_GAME:
+                if last_status != NOT_IN_GAME:
                     # Game just closed - this is a certain signal (not a
                     # flaky OCR read), so no need to debounce it.
                     apply(NOT_IN_GAME)
-            game_was_running = running
 
             # Heartbeat: nothing changed, but refresh the timestamp anyway
             # so a long stretch on the same server doesn't look stale.
-            if last_status is not None and time.time() - last_applied_at >= HEARTBEAT_INTERVAL_SECONDS:
+            if last_status is not None and (not running or last_known_server_status is not None) and time.time() - last_applied_at >= HEARTBEAT_INTERVAL_SECONDS:
                 apply(last_status)
         except KeyboardInterrupt:
             log.info("Stopping.")
