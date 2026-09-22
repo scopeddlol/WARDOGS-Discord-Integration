@@ -215,7 +215,11 @@ def parse_region(region_str: str):
 _warned_bad_monitor = False
 
 
-def grab_region(region_str: str = CAPTURE_REGION) -> Image.Image:
+class CaptureInterrupted(Exception):
+    """The game lost focus while a multi-region reading was in progress."""
+
+
+def grab_region(region_str: str = CAPTURE_REGION, require_foreground=False) -> Image.Image:
     global _warned_bad_monitor
     left_f, top_f, right_f, bottom_f = parse_region(region_str)
     with mss.MSS() as sct:
@@ -236,7 +240,11 @@ def grab_region(region_str: str = CAPTURE_REGION) -> Image.Image:
             "width": int(w * (right_f - left_f)),
             "height": int(h * (bottom_f - top_f)),
         }
+        if require_foreground and not is_game_foreground():
+            raise CaptureInterrupted()
         shot = sct.grab(box)
+        if require_foreground and not is_game_foreground():
+            raise CaptureInterrupted()
         return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
 
 
@@ -424,11 +432,13 @@ def load_state():
         try:
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            if not isinstance(data, dict):
+                return None, None, None
             updated_at = None
             if data.get("updated_at"):
                 try:
                     updated_at = datetime.fromisoformat(data["updated_at"]).timestamp()
-                except ValueError:
+                except (ValueError, TypeError):
                     pass
             if data.get("channel_id") != DISCORD_STATUS_CHANNEL_ID:
                 return None, None, None
@@ -550,7 +560,7 @@ def set_status_message(text: str, message_id: str | None, scores=None):
     return False, None, message_id
 
 
-def capture_and_parse():
+def capture_and_parse(require_foreground=False):
     """Returns (raw_ocr_text, server_status, team, scores). server_status is a
     server string / NOT_IN_GAME / a Queued string / None (see
     determine_status). team is sampled independently on every call (not
@@ -561,7 +571,7 @@ def capture_and_parse():
     poll. Callers combine the latest known value of each themselves.
     scores is the (lonestar, valkyra, manticore) HUD scoreboard tuple, or
     None if it isn't readable right now."""
-    img = preprocess(grab_region(CAPTURE_REGION))
+    img = preprocess(grab_region(CAPTURE_REGION, require_foreground))
     text = pytesseract.image_to_string(img, timeout=10)
     if not text.strip():
         # Default page segmentation (--psm 3, full automatic layout
@@ -572,8 +582,8 @@ def capture_and_parse():
         # pass found nothing at all.
         text = pytesseract.image_to_string(img, config="--psm 6", timeout=10)
     status = determine_status(text)
-    team = detect_team(grab_region(TEAM_ICON_REGION)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.team else None
-    scores = read_scores(grab_region(SCORE_REGION)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.scores else None
+    team = detect_team(grab_region(TEAM_ICON_REGION, require_foreground)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.team else None
+    scores = read_scores(grab_region(SCORE_REGION, require_foreground)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.scores else None
     return text, status, team, scores
 
 
@@ -676,7 +686,7 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
                 if not is_game_foreground():
                     stop_event.wait(POLL_INTERVAL_SECONDS)
                     continue
-                _, server_status, team, scores = capture_and_parse()
+                _, server_status, team, scores = capture_and_parse(require_foreground=DESKTOP_SETTINGS is not None)
 
                 if server_status is not None:
                     if server_status != last_known_server_status:
@@ -733,6 +743,8 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
             # so a long stretch on the same server doesn't look stale.
             if last_status is not None and (not running or last_known_server_status is not None) and time.time() - last_applied_at >= HEARTBEAT_INTERVAL_SECONDS:
                 apply(last_status)
+        except CaptureInterrupted:
+            pass  # Discard an interrupted reading; never publish a mixture of apps.
         except KeyboardInterrupt:
             log.info("Stopping.")
             break
