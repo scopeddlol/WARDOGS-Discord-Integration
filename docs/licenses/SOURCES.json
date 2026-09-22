@@ -1,0 +1,98 @@
+{
+  "libarchive": {
+    "license": "https://raw.githubusercontent.com/libarchive/libarchive/v3.7.4/COPYING",
+    "source": "https://github.com/libarchive/libarchive/tree/v3.7.4"
+  },
+  "libb2": {
+    "license": "https://raw.githubusercontent.com/BLAKE2/libb2/v0.98.1/COPYING",
+    "source": "https://github.com/BLAKE2/libb2/tree/v0.98.1"
+  },
+  "bzip2": {
+    "license": "https://raw.githubusercontent.com/libarchive/bzip2/bzip2-1.0.8/LICENSE",
+    "source": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
+  },
+  "openssl": {
+    "license": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.3.1/LICENSE.txt",
+    "source": "https://github.com/openssl/openssl/tree/openssl-3.3.1"
+  },
+  "libdeflate": {
+    "license": "https://raw.githubusercontent.com/ebiggers/libdeflate/v1.19/COPYING",
+    "source": "https://github.com/ebiggers/libdeflate/tree/v1.19"
+  },
+  "expat": {
+    "license": "https://raw.githubusercontent.com/libexpat/libexpat/R_2_6_2/expat/COPYING",
+    "source": "https://github.com/libexpat/libexpat/tree/R_2_6_2"
+  },
+  "gcc-runtime": {
+    "license": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-14.1.0/COPYING.RUNTIME",
+    "source": "https://github.com/gcc-mirror/gcc/tree/releases/gcc-14.1.0"
+  },
+  "giflib": {
+    "license": "https://raw.githubusercontent.com/mirrorer/giflib/master/COPYING",
+    "source": "https://sourceforge.net/projects/giflib/files/giflib-5.2.1.tar.gz/download"
+  },
+  "libiconv": {
+    "license": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz (file libiconv-1.17/COPYING.LIB)",
+    "source": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz"
+  },
+  "GPL-2.0": {
+    "license": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/LICENSES/GPL-2.0-only.txt",
+    "source": "https://www.cl.cam.ac.uk/~mgk25/jbigkit/download/jbigkit-2.1.tar.gz"
+  },
+  "libjpeg-turbo": {
+    "license": "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/3.0.1/LICENSE.md",
+    "source": "https://github.com/libjpeg-turbo/libjpeg-turbo/tree/3.0.1"
+  },
+  "libjpeg-IJG": {
+    "license": "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/3.0.1/README.ijg",
+    "source": "https://github.com/libjpeg-turbo/libjpeg-turbo/tree/3.0.1"
+  },
+  "leptonica": {
+    "license": "https://raw.githubusercontent.com/DanBloomberg/leptonica/1.84.1/leptonica-license.txt",
+    "source": "https://github.com/DanBloomberg/leptonica/tree/1.84.1"
+  },
+  "lerc": {
+    "license": "https://raw.githubusercontent.com/Esri/lerc/v4.0.0/LICENSE",
+    "source": "https://github.com/Esri/lerc/tree/v4.0.0"
+  },
+  "lz4": {
+    "license": "https://raw.githubusercontent.com/lz4/lz4/v1.9.4/lib/LICENSE",
+    "source": "https://github.com/lz4/lz4/tree/v1.9.4"
+  },
+  "xz": {
+    "license": "https://raw.githubusercontent.com/tukaani-project/xz/v5.6.1/COPYING",
+    "source": "https://github.com/tukaani-project/xz/tree/v5.6.1"
+  },
+  "openjpeg": {
+    "license": "https://raw.githubusercontent.com/uclouvain/openjpeg/v2.5.2/LICENSE",
+    "source": "https://github.com/uclouvain/openjpeg/tree/v2.5.2"
+  },
+  "libpng": {
+    "license": "https://raw.githubusercontent.com/pnggroup/libpng/v1.6.43/LICENSE",
+    "source": "https://github.com/pnggroup/libpng/tree/v1.6.43"
+  },
+  "tiff": {
+    "license": "https://raw.githubusercontent.com/libsdl-org/libtiff/v4.6.0/LICENSE.md",
+    "source": "https://download.osgeo.org/libtiff/tiff-4.6.0.tar.gz"
+  },
+  "webp": {
+    "license": "https://raw.githubusercontent.com/webmproject/libwebp/v1.4.0/COPYING",
+    "source": "https://github.com/webmproject/libwebp/tree/v1.4.0"
+  },
+  "winpthreads": {
+    "license": "https://raw.githubusercontent.com/mingw-w64/mingw-w64/v12.0.0/mingw-w64-libraries/winpthreads/COPYING",
+    "source": "https://github.com/mingw-w64/mingw-w64/tree/v12.0.0"
+  },
+  "zstd": {
+    "license": "https://raw.githubusercontent.com/facebook/zstd/v1.5.6/LICENSE",
+    "source": "https://github.com/facebook/zstd/tree/v1.5.6"
+  },
+  "zlib": {
+    "license": "https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE",
+    "source": "https://github.com/madler/zlib/tree/v1.3.1"
+  },
+  "jbigkit": {
+    "license": "https://www.cl.cam.ac.uk/~mgk25/jbigkit/download/jbigkit-2.1.tar.gz (file jbigkit-2.1/COPYING)",
+    "source": "https://www.cl.cam.ac.uk/~mgk25/jbigkit/download/jbigkit-2.1.tar.gz"
+  }
+}

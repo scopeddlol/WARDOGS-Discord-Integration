@@ -1,7 +1,8 @@
-mss
-psutil
-pytesseract
-python-dotenv
-pillow
-requests
-pystray
+mss==10.2.0
+psutil==7.2.2
+pytesseract==0.3.13
+python-dotenv==1.2.3
+pillow==12.3.0
+requests==2.34.2
+pystray==0.19.5
+PySide6==6.8.3
