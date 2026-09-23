@@ -1,0 +1,75 @@
+name: Multi-user controller and agent
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  controller:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: multiuser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r controller/requirements.txt pytest==8.4.2
+      - run: python -m pytest checks/controller_checks.py -q
+      - name: Build and exercise the container
+        env:
+          TEST_ADMIN: ci-only-controller-key-0000000000000000
+        run: |
+          cp .env.example .env
+          docker compose config --format json > /tmp/compose.json
+          python -c "import json; c=json.load(open('/tmp/compose.json')); assert not c['services']['controller'].get('ports')"
+          docker build -f controller/Dockerfile -t wardogs-controller:test .
+          docker run -d --name wardogs-test --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges -p 127.0.0.1:18080:8080 -v wardogs-test-data:/data -e DISCORD_DRY_RUN=1 -e CONTROLLER_ADMIN_TOKEN="$TEST_ADMIN" wardogs-controller:test
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz && break || sleep 1; done
+          python checks/container_smoke.py --token "$TEST_ADMIN"
+          docker restart wardogs-test
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz && break || sleep 1; done
+          python -c "import os,httpx; r=httpx.get('http://127.0.0.1:18080/api/admin/state',headers={'Authorization':'Bearer '+os.environ['TEST_ADMIN']}); r.raise_for_status(); s=r.json(); assert len(s['agents'])==10; assert s['layout']['image'].startswith('attachment://')"
+      - name: Container logs
+        if: always()
+        run: docker logs wardogs-test || true
+
+  agent:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: multiuser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - run: python -m pip install -r requirements-build.txt
+      - run: python -m pytest checks/agent_checks.py -q
+      - name: Prepare bundled OCR
+        run: ./packaging/prepare-ocr.ps1
+      - name: Build agent installer
+        run: ./packaging/build.ps1 -Python python
+      - name: Check install, GUI, OCR, upgrade and uninstall
+        run: ./packaging/test-installer.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multiuser-agent-installer
+          path: |
+            multiuser/dist/WARDOGS-Agent-Setup.exe
+            multiuser/dist/SHA256SUMS.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: multiuser-agent-verification
+          path: multiuser/artifacts/
+          if-no-files-found: ignore

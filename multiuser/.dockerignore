@@ -1,0 +1,7 @@
+*
+!controller/
+!controller/**
+controller/__pycache__/
+controller/**/*.pyc
+
+!LICENSE

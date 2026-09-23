@@ -1,0 +1,29 @@
+services:
+  controller:
+    build:
+      context: .
+      dockerfile: controller/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - controller-data:/data
+    expose:
+      - "8080"
+    networks:
+      - proxy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+volumes:
+  controller-data:
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}
