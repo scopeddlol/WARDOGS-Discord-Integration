@@ -28,7 +28,7 @@ def test_queue_respects_server_privacy(text):
 def test_id_and_offline_filters():
     assert "469618" not in filter_status(MATCH, None, replace(VALID, server_id=False), OFFLINE)[0]
     assert filter_status("Queued (ID 123-456, position 2 of 8)", None, replace(VALID, server_id=False), OFFLINE)[0] == "Queued (position 2 of 8)"
-    assert filter_status(OFFLINE, (1, 2, 3), replace(VALID, offline=False), OFFLINE) == ("Broadcast enabled · waiting for a match", None)
+    assert filter_status(OFFLINE, (1, 2, 3), replace(VALID, offline=False), OFFLINE) == ("Offline", None)
 
 
 @pytest.mark.parametrize("changes", [{"channel": "abc"}, {"channel": "123"}, {"token": "with spaces"},
@@ -125,20 +125,17 @@ def test_app_process_does_not_count_as_game(monkeypatch):
     assert bot.is_game_running()
 
 
-def test_background_game_is_not_captured(monkeypatch):
+def test_background_game_uses_window_capture(monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(bot, 'DISCORD_BOT_TOKEN', 'token')
     monkeypatch.setattr(bot, 'DISCORD_STATUS_CHANNEL_ID', 'channel')
     monkeypatch.setattr(bot, 'load_state', lambda: (None, None, None))
     monkeypatch.setattr(bot, 'is_game_running', lambda: True)
-    def foreground():
-        stop.set()
-        return False
-    monkeypatch.setattr(bot, 'is_game_foreground', foreground)
-    capture = Mock()
+    monkeypatch.setattr(bot, 'is_game_foreground', lambda: False)
+    capture = Mock(side_effect=lambda **kwargs: (stop.set(), ('', None, None, None))[1])
     monkeypatch.setattr(bot, 'capture_and_parse', capture)
     bot.run_loop(False, stop)
-    capture.assert_not_called()
+    capture.assert_called_once_with(require_foreground=False)
 
 
 def test_focus_loss_between_regions_discards_reading(monkeypatch):
@@ -160,3 +157,14 @@ def test_malformed_runtime_state_recovers(monkeypatch, tmp_path):
     path.write_text("[]")
     monkeypatch.setattr(bot, "STATE_FILE", str(path))
     assert bot.load_state() == (None, None, None)
+
+
+def test_standalone_steam_author_and_hud_match(monkeypatch):
+    settings = replace(VALID, steam_url='https://steamcommunity.com/id/scout')
+    monkeypatch.setattr(bot, 'DESKTOP_SETTINGS', settings)
+    monkeypatch.setattr(bot, 'DISPLAY_NAME', 'Scout')
+    monkeypatch.setattr(bot, 'NOT_IN_GAME', OFFLINE)
+    embed = bot._build_embed('In a match', (13, 90, 42))
+    assert embed['author'] == {'name': 'Scout', 'url': settings.steam_url}
+    assert 'In a match' in embed['description']
+    assert bot._build_embed(OFFLINE)['description'] == 'Offline'

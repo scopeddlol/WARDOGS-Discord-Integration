@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 from urllib.parse import urlsplit, urlunsplit
+import re
 from .credential_store import protect_token
 
 
@@ -32,10 +33,25 @@ def normalize_url(value):
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip('/'), '', ''))
 
 
+def steam_profile(value):
+    value = value.strip().rstrip('/')
+    if not value:
+        return ''
+    parsed = urlsplit(value)
+    if (parsed.scheme != 'https' or parsed.hostname not in ('steamcommunity.com', 'www.steamcommunity.com')
+            or parsed.username or parsed.password or parsed.port or parsed.query or parsed.fragment
+            or not re.fullmatch(r'/(id|profiles)/[A-Za-z0-9_-]+', parsed.path)):
+        raise ValueError('Use an HTTPS Steam Community profile URL, such as https://steamcommunity.com/id/yourname.')
+    return 'https://steamcommunity.com' + parsed.path
+
+
 @dataclass
 class Settings:
     url: str = ''
     username: str = ''
+    steam_url: str = ''
+    window_title: str = ''
+    hide_capture_border: bool = False
     agent_id: str = ''
     token: str = ''
     monitor: int = 1
@@ -55,6 +71,7 @@ class Settings:
 
     def validate(self, paired=False):
         self.url = normalize_url(self.url)
+        self.steam_url = steam_profile(self.steam_url)
         if not 1 <= len(self.username.strip()) <= 40:
             raise ValueError('Enter the exact player username supplied by your controller host.')
         if paired and (not self.token or not self.agent_id):

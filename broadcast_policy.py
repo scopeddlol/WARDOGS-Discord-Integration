@@ -9,7 +9,7 @@ def filter_status(text, scores, settings, offline_text):
             team, text = faction, text[len(faction) + 3:]
             break
     if text == offline_text:
-        return (text if settings.offline else "Broadcast enabled · waiting for a match"), None
+        return (text if settings.offline else "Offline"), None
     if text.startswith("Queued"):
         if not settings.queue:
             return "WARDOGS is running", None

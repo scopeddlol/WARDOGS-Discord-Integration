@@ -123,6 +123,28 @@ logging.basicConfig(
 )
 log = logging.getLogger("wardogs-status")
 DESKTOP_SETTINGS = None
+_game_capture = None
+
+
+def close_capture():
+    global _game_capture
+    if _game_capture is not None:
+        _game_capture.close()
+        _game_capture = None
+
+
+def capture_game_frame():
+    global _game_capture
+    from window_capture import GameCapture
+    if _game_capture is None:
+        _game_capture = GameCapture(DESKTOP_SETTINGS.window_title, DESKTOP_SETTINGS.hide_capture_border)
+    return _game_capture.read()
+
+
+def crop_fraction(frame, region):
+    left, top, right, bottom = parse_region(region)
+    return frame.crop((int(frame.width * left), int(frame.height * top),
+                       int(frame.width * right), int(frame.height * bottom)))
 
 
 def configure_desktop(settings, ocr_path):
@@ -130,6 +152,7 @@ def configure_desktop(settings, ocr_path):
     global DESKTOP_SETTINGS, DISCORD_BOT_TOKEN, DISCORD_STATUS_CHANNEL_ID
     global DISPLAY_NAME, NOT_IN_GAME, MONITOR_INDEX, POLL_INTERVAL_SECONDS, GAME_PROCESS_SUBSTRING
     global SCORE_UPDATE_INTERVAL_SECONDS, CAPTURE_REGION, TEAM_ICON_REGION, SCORE_REGION
+    close_capture()
     DESKTOP_SETTINGS = settings
     GAME_PROCESS_SUBSTRING = "wardogsclient"
     DISCORD_BOT_TOKEN, DISCORD_STATUS_CHANNEL_ID = settings.token, settings.channel
@@ -513,17 +536,22 @@ def _build_embed(text: str, scores=None):
         from broadcast_policy import filter_status
         text, scores = filter_status(text, scores, DESKTOP_SETTINGS, NOT_IN_GAME)
     icon = _icon_for(text)
-    display_text = text
-    description = display_text if display_text == NOT_IN_GAME else f"{icon} │ {display_text}"
-    if scores:
-        description += f"\n\nScore: {_format_scores(scores)}"
-    return {
-        "title": f"Current Wardogs Server - {DISPLAY_NAME}",
+    offline = text == NOT_IN_GAME or text == 'Offline'
+    display_text = 'Offline' if offline else _strip_team_prefix(text)
+    description = display_text if offline else f"{icon}  {display_text}"
+    if scores and not offline:
+        description += f"\n\n{_format_scores(scores)}"
+    embed = {
+        "title": "WARDOGS · Player status",
+        "author": {"name": DISPLAY_NAME},
         "description": description,
-        "color": EMBED_COLOR_NOT_IN_GAME if text == NOT_IN_GAME else EMBED_COLOR_IN_GAME,
-        "timestamp": _round_down_to_5_minutes(datetime.now(timezone.utc)).isoformat(),
-        "footer": {"text": "Last updated"},
+        "color": EMBED_COLOR_NOT_IN_GAME if offline else EMBED_COLOR_IN_GAME,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "footer": {"text": "Live WARDOGS status"},
     }
+    if DESKTOP_SETTINGS is not None and DESKTOP_SETTINGS.steam_url:
+        embed["author"]["url"] = DESKTOP_SETTINGS.steam_url
+    return embed
 
 
 def set_status_message(text: str, message_id: str | None, scores=None):
@@ -571,19 +599,26 @@ def capture_and_parse(require_foreground=False):
     poll. Callers combine the latest known value of each themselves.
     scores is the (lonestar, valkyra, manticore) HUD scoreboard tuple, or
     None if it isn't readable right now."""
-    img = preprocess(grab_region(CAPTURE_REGION, require_foreground))
-    text = pytesseract.image_to_string(img, timeout=10)
-    if not text.strip():
-        # Default page segmentation (--psm 3, full automatic layout
-        # analysis) can give up entirely on a busy/noisy background - seen
-        # on the "PRESS ANY BUTTON TO START" splash, which sits over a
-        # detailed rendered scene. --psm 6 is slower but far more reliable
-        # there, so it's only worth paying for as a fallback when the fast
-        # pass found nothing at all.
-        text = pytesseract.image_to_string(img, config="--psm 6", timeout=10)
+    if DESKTOP_SETTINGS is not None and sys.platform == 'win32':
+        frame = capture_game_frame()
+        region = lambda box: crop_fraction(frame, box)
+    else:
+        region = lambda box: grab_region(box, require_foreground)
+    # The normal gameplay HUD is a fast match signal; read it before the
+    # larger pause-menu/server OCR, which may be blank or slow in a match.
+    team = detect_team(region(TEAM_ICON_REGION)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.team else None
+    try:
+        scores = read_scores(region(SCORE_REGION))
+    except (RuntimeError, pytesseract.TesseractError):
+        scores = None
+    img = preprocess(region(CAPTURE_REGION))
+    try:
+        text = pytesseract.image_to_string(img, timeout=5)
+        if not text.strip():
+            text = pytesseract.image_to_string(img, config="--psm 6", timeout=5)
+    except (RuntimeError, pytesseract.TesseractError):
+        text = ''
     status = determine_status(text)
-    team = detect_team(grab_region(TEAM_ICON_REGION, require_foreground)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.team else None
-    scores = read_scores(grab_region(SCORE_REGION, require_foreground)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.scores else None
     return text, status, team, scores
 
 
@@ -683,10 +718,9 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
         try:
             running = is_game_running()
             if running:
-                if not is_game_foreground():
-                    stop_event.wait(POLL_INTERVAL_SECONDS)
-                    continue
-                _, server_status, team, scores = capture_and_parse(require_foreground=DESKTOP_SETTINGS is not None)
+                _, server_status, team, scores = capture_and_parse(require_foreground=False)
+                if (scores is not None or team is not None) and server_status is None and (last_known_server_status is None or last_known_server_status == NOT_IN_GAME):
+                    server_status = "In a match"
 
                 if server_status is not None:
                     if server_status != last_known_server_status:
@@ -743,8 +777,8 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
             # so a long stretch on the same server doesn't look stale.
             if last_status is not None and (not running or last_known_server_status is not None) and time.time() - last_applied_at >= HEARTBEAT_INTERVAL_SECONDS:
                 apply(last_status)
-        except CaptureInterrupted:
-            pass  # Discard an interrupted reading; never publish a mixture of apps.
+        except (CaptureInterrupted, __import__("window_capture").CaptureUnavailable):
+            pass  # Keep the last confirmed reading while the game is minimized or unavailable.
         except KeyboardInterrupt:
             log.info("Stopping.")
             break
@@ -753,6 +787,8 @@ def run_loop(dry_run: bool, stop_event: threading.Event | None = None, on_status
         if stop_event.wait(POLL_INTERVAL_SECONDS):
             log.info("Stopping.")
             break
+
+    close_capture()
 
 
 def run_tray(dry_run: bool):

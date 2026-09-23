@@ -44,8 +44,9 @@ extra farewell message. An HTTP request already in flight may finish before Stop
 
 ## 4. Check game capture
 
-In **Capture**, choose the display running WARDOGS. After joining a match, briefly open the
-pause menu to expose `CURRENT SERVER` and `SERVER ID`.
+In **Capture**, use automatic WARDOGS window detection or choose a listed WARDOGS window manually.
+The gameplay HUD detects a match without the pause menu. Open the pause menu whenever you want
+the app to add `CURRENT SERVER` and `SERVER ID`.
 For faction detection, set the game's **Settings → Interface → Faction → Always On**.
 
 If details are missed:
@@ -57,9 +58,9 @@ If details are missed:
    The scoreboard box should cover all three equal-width team panels.
 5. Click **Done**, then **Save settings**. Use **Read screen in 5 seconds** to verify locally.
 
-Screenshots stay in memory. The automatic broadcaster only scans when the actual game client
-is in the foreground, so switching to Discord or another app pauses screen reading. The last
-status stays visible until another reading or game closure updates it. OCR is not perfect:
+Screenshots stay in memory. The broadcaster captures only the game window, including while another app has focus.
+When capture is unavailable or the game is minimized, it keeps the last confirmed reading;
+closing WARDOGS clears it. OCR is not perfect:
 UI scale, display resolution, hidden HUD elements, and future game updates can affect readings.
 
 ## Running in the background
@@ -77,7 +78,7 @@ Both are off by default. A second shortcut click opens the existing app.
 - **Channel not found:** copy the ID of a regular server text channel, not a server, category,
   forum, thread, or voice channel.
 - **OCR engine missing:** reinstall with the complete Windows installer.
-- **Wrong or missing readings:** use Capture calibration; briefly open the pause menu.
+- **Wrong or missing readings:** use Capture calibration. Open the pause menu for server details; the HUD detects a match without it.
 - **Broadcast needs attention:** open **Activity** for the error. Retries respect Discord rate
   limits. Other API failures back off for 30 seconds.
 - **Cannot load saved settings:** the file may be corrupt or belong to another Windows account.
@@ -93,3 +94,5 @@ application, shortcuts, and sign-in entry. Settings are deliberately retained fo
 To remove all saved data, after uninstall delete `%LOCALAPPDATA%\WARDOGS Discord` in Explorer.
 That folder contains `settings.json`, `last_status.json`, and rotated diagnostic logs. Logs may
 contain server details; review them before sharing. If you exposed a token, reset it in Discord.
+
+To hide the Windows capture border, enable **Hide the Windows capture border** in Capture and click **Open Windows border permission**. Allow the app on the Windows privacy page, then restart reporting. Windows may keep the border if permission is denied or another capture app requires it.

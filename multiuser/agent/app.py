@@ -12,8 +12,8 @@ import sys
 import threading
 import time
 
-from PySide6.QtCore import QTimer,Qt
-from PySide6.QtGui import QIcon,QFontDatabase
+from PySide6.QtCore import QTimer,Qt,QUrl
+from PySide6.QtGui import QIcon,QFontDatabase,QDesktopServices
 from PySide6.QtNetwork import QLocalServer,QLocalSocket
 from PySide6.QtWidgets import (QApplication,QCheckBox,QComboBox,QFormLayout,QHBoxLayout,QLabel,
     QLineEdit,QMainWindow,QMenu,QMessageBox,QPlainTextEdit,QPushButton,QScrollArea,QSpinBox,
@@ -93,6 +93,7 @@ class Window(QMainWindow):
         form=QFormLayout();form.setSpacing(12)
         self.field(form,'url','Controller URL').setPlaceholderText('https://wardogs.example.com')
         self.field(form,'username','Player username').setPlaceholderText('The exact name paired by your host')
+        self.field(form,'steam_url','Steam profile URL (optional)').setPlaceholderText('https://steamcommunity.com/id/yourname')
         self.pin=QLineEdit();self.pin.setMaxLength(8);self.pin.setEchoMode(QLineEdit.Password);self.pin.setAccessibleName('Pairing PIN');self.pin.setPlaceholderText('8-digit PIN');form.addRow('Pairing PIN',self.pin)
         layout.addLayout(form);row=QHBoxLayout();self.pair_button=button('Pair agent',self.pair,True);self.forget_button=button('Forget pairing',self.forget)
         row.addWidget(self.pair_button);row.addWidget(self.forget_button);row.addStretch();layout.addLayout(row)
@@ -108,14 +109,34 @@ class Window(QMainWindow):
 
     def capture_page(self):
         layout=self.page('Capture');layout.addWidget(label('03  GAME DETECTION','eyebrow'))
-        layout.addWidget(label('The agent captures only the WARDOGS window, even behind other apps. If minimized, the last reading stays visible until capture resumes. Open the pause menu briefly to reveal server details. Set Interface → Faction to Always On for faction detection.','muted'))
-        form=QFormLayout();self.monitor=QComboBox()
-        self.monitor.addItem('WARDOGS window · automatic',1)
-        form.addRow('Capture source',label('WARDOGS window · automatic','muted'))
-        interval=QSpinBox();interval.setRange(2,60);interval.setValue(self.settings.poll_seconds);self.inputs['poll_seconds']=interval;form.addRow('Scan every (seconds)',interval);layout.addLayout(form)
+        layout.addWidget(label('The app watches only WARDOGS, including behind other apps. The HUD detects a match; the pause menu adds server details when available. If minimized, the last reading stays visible until capture resumes.','muted'))
+        form=QFormLayout();self.monitor=QComboBox();self.monitor.addItem('WARDOGS window',1)
+        self.window_selector=QComboBox();self.window_selector.setAccessibleName('WARDOGS window')
+        form.addRow('WARDOGS window',self.window_selector)
+        interval=QSpinBox();interval.setRange(2,60);interval.setValue(self.settings.poll_seconds);self.inputs['poll_seconds']=interval
+        form.addRow('Scan every (seconds)',interval);layout.addLayout(form)
+        layout.addWidget(button('Refresh game windows',self.refresh_windows));self.refresh_windows()
+        self.check(layout,'hide_capture_border','Hide the Windows capture border when permitted')
+        layout.addWidget(button('Open Windows border permission',self.open_border_permission))
+        layout.addWidget(label('Windows controls this permission. Allow screenshot-border access for this app in the page that opens, then restart reporting.','muted'))
         layout.addWidget(button('Adjust capture boxes…',self.calibrate));layout.addWidget(button('Read screen in 5 seconds',self.preview))
         self.preview_result=label('Local test only. Nothing is sent to the controller.','muted');layout.addWidget(self.preview_result);layout.addStretch()
         layout.addWidget(label('OCR engine: '+('Ready' if ocr_path().exists() else 'Missing — use the agent installer'),'muted'))
+
+    def refresh_windows(self):
+        from .window_capture import game_windows
+        selected=getattr(self,'window_selector',None) and (self.window_selector.currentData() or self.settings.window_title)
+        self.window_selector.clear();self.window_selector.addItem('Automatic detection','')
+        try:
+            for hwnd,title,minimized in game_windows():
+                key=title or f'HWND:{hwnd}'
+                self.window_selector.addItem(f'{title or "Untitled WARDOGS window"} · {hwnd}'+(' · minimized' if minimized else ''),key)
+        except OSError:pass
+        index=self.window_selector.findData(selected)
+        if index>=0:self.window_selector.setCurrentIndex(index)
+
+    def open_border_permission(self):
+        QDesktopServices.openUrl(QUrl('ms-settings:privacy-graphicscapturewithoutborder'))
 
     def sync_pairing(self):
         paired=bool(self.settings.token)
@@ -129,6 +150,7 @@ class Window(QMainWindow):
             value=widget.isChecked() if isinstance(widget,QCheckBox) else widget.value() if isinstance(widget,QSpinBox) else widget.text().strip()
             setattr(result,key,value)
         result.monitor=self.monitor.currentData() or 0
+        result.window_title=self.window_selector.currentData() or ''
         return result
 
     def error(self,text):
@@ -314,7 +336,7 @@ def smoke(window,directory):
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--background',action='store_true');parser.add_argument('--smoke-test',type=Path)
-    args=parser.parse_args();app=QApplication(sys.argv);app.setApplicationName('WARDOGS Agent');app.setStyle('Fusion');app.setStyleSheet(STYLE);app.setQuitOnLastWindowClosed(False)
+    args=parser.parse_args();app=QApplication(sys.argv);app.setApplicationName('WARDOGS Agent');app.setWindowIcon(QIcon(str(config.resources()/'agent'/'tray_icon.png')));app.setStyle('Fusion');app.setStyleSheet(STYLE);app.setQuitOnLastWindowClosed(False)
     if args.smoke_test:
         QFontDatabase.addApplicationFont('C:/Windows/Fonts/segoeui.ttf');QFontDatabase.addApplicationFont('C:/Windows/Fonts/segoeuib.ttf')
     logging.basicConfig(level=logging.INFO,handlers=[RotatingFileHandler(config.data_dir()/'agent.log',maxBytes=1_000_000,backupCount=2,encoding='utf-8')])

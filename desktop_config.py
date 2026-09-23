@@ -49,11 +49,28 @@ def protect_token(value, decrypt=False):
         kernel.LocalFree(result.data)
 
 
+def steam_profile(value):
+    from urllib.parse import urlsplit
+    import re
+    value = value.strip().rstrip('/')
+    if not value:
+        return ''
+    parsed = urlsplit(value)
+    if (parsed.scheme != 'https' or parsed.hostname not in ('steamcommunity.com', 'www.steamcommunity.com')
+            or parsed.username or parsed.password or parsed.port or parsed.query or parsed.fragment
+            or not re.fullmatch(r'/(id|profiles)/[A-Za-z0-9_-]+', parsed.path)):
+        raise ValueError('Use an HTTPS Steam Community profile URL, such as https://steamcommunity.com/id/yourname.')
+    return 'https://steamcommunity.com' + parsed.path
+
+
 @dataclass
 class Settings:
     token: str = ""
     channel: str = ""
     name: str = "Player"
+    steam_url: str = ""
+    window_title: str = ""
+    hide_capture_border: bool = False
     monitor: int = 1
     poll_seconds: int = 4
     score_seconds: int = 30
@@ -66,8 +83,8 @@ class Settings:
     launch_at_login: bool = False
     auto_start: bool = False
     capture_region: str = "0,0.65,1,1"
-    team_region: str = "0.960,0.925,0.990,0.965"
-    score_region: str = "0.0169,0.9139,0.1497,0.9514"
+    team_region: str = "0.967,0.962,0.987,0.994"
+    score_region: str = "0.0169,0.925,0.1497,0.958"
 
     def validate(self):
         if not self.token.strip() or any(c.isspace() for c in self.token):
@@ -79,7 +96,8 @@ class Settings:
         if not 2 <= self.poll_seconds <= 60 or not 15 <= self.score_seconds <= 600:
             raise ValueError("Scan interval must be 2–60 seconds; score updates 15–600 seconds.")
         if self.monitor < 1:
-            raise ValueError("Choose a display before starting.")
+            raise ValueError("Select a WARDOGS capture source before starting.")
+        self.steam_url = steam_profile(self.steam_url)
         for value in (self.capture_region, self.team_region, self.score_region):
             try:
                 left, top, right, bottom = map(float, value.split(","))
@@ -98,6 +116,10 @@ def load_settings(path=None):
     if not isinstance(raw, dict):
         raise ValueError("Settings must be a JSON object.")
     defaults = Settings()
+    old_regions = {"team_region": "0.960,0.925,0.990,0.965", "score_region": "0.0169,0.9139,0.1497,0.9514"}
+    for name, old in old_regions.items():
+        if raw.get(name) == old:
+            raw[name] = getattr(defaults, name)
     values = {}
     for field in fields(Settings):
         if field.name == "token":

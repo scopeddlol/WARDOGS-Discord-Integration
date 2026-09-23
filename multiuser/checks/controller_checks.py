@@ -263,3 +263,14 @@ def test_idle_offline_endpoint_and_legacy_paused(client):
     assert client.post('/api/v1/offline',headers=auth).json()=={'ok':True}
     assert client.app.state.store.roster()[0]['connection']=='offline'
     assert client.put('/api/v1/status',headers=auth,json={'session_id':session,'sequence':1,'activity':'match'}).status_code==403
+
+
+def test_steam_profile_renders_as_clickable_username():
+    url = 'https://steamcommunity.com/id/scout'
+    report = Report(session_id='a' * 32, sequence=1, activity='match', details='In a match', steam_url=url)
+    player = {'id': '1', 'username': 'Scout', 'connection': 'connected', 'last_seen': 1000,
+              'status': report.model_dump(exclude={'session_id', 'sequence'})}
+    embed = render(Layout(), [player], 1000)['embed']
+    assert '[Scout](' + url + ')' in embed['fields'][0]['value']
+    with pytest.raises(ValueError):
+        Report(session_id='a' * 32, sequence=1, activity='match', steam_url='https://evil.test/id/scout')

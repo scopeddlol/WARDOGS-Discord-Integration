@@ -1,13 +1,13 @@
 """Visual calibration; screenshots stay in memory and never leave the computer."""
-import mss
+import wardogs_status_bot as engine
 from PySide6.QtCore import Qt, QRectF, Signal, QTimer
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel,
                               QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
 REGIONS = [("capture_region", "Server / queue text", "#d9ef61", "0,0.65,1,1"),
-           ("team_region", "Faction icon", "#fb7598", "0.960,0.925,0.990,0.965"),
-           ("score_region", "Scoreboard", "#68c8ff", "0.0169,0.9139,0.1497,0.9514")]
+           ("team_region", "Faction icon", "#fb7598", "0.967,0.962,0.987,0.994"),
+           ("score_region", "Scoreboard", "#68c8ff", "0.0169,0.925,0.1497,0.958")]
 
 
 class CaptureCanvas(QWidget):
@@ -117,9 +117,9 @@ class CaptureDialog(QDialog):
 
     def capture(self):
         try:
-            with mss.MSS() as capture:
-                shot = capture.grab(capture.monitors[self.settings.monitor])
-                image = QImage(shot.rgb, shot.width, shot.height, shot.width * 3, QImage.Format_RGB888).copy()
+            engine.configure_desktop(self.settings, engine.pytesseract.pytesseract.tesseract_cmd)
+            shot = engine.capture_game_frame()
+            image = QImage(shot.tobytes(), shot.width, shot.height, shot.width * 3, QImage.Format_RGB888).copy()
             self.canvas.pixmap = QPixmap.fromImage(image)
             self.canvas.update()
             self.hint.setText("Select a box above, then click and drag to replace it. Click Done and Save settings.")

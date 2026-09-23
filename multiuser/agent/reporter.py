@@ -41,7 +41,7 @@ class Detector:
         try:_,server,team,scores=engine.capture_and_parse()
         except (engine.CaptureInterrupted,CaptureUnavailable):
             return self.latest
-        if scores is not None and server is None and (self.server is None or self.server==engine.NOT_IN_GAME):
+        if (scores is not None or team is not None) and server is None and (self.server is None or self.server==engine.NOT_IN_GAME):
             server='In a match'
         if server is not None and server!=self.server:
             self.server=server;self.team=None;self.scores=None;self.score_pending=None;self.score_count=0
@@ -77,11 +77,11 @@ def run(settings,ocr,stop,emit,client_factory=ControllerClient):
                 if stop.is_set():break
                 if time.monotonic()>=next_send:
                     sequence+=1
-                    client.report(session,sequence,payload)
+                    client.report(session,sequence,dict(payload,steam_url=settings.steam_url))
                     emit('Reporting · '+payload['details'])
                     next_send=time.monotonic()+15
                 backoff=2
-                stop.wait(settings.poll_seconds)
+                stop.wait(2 if payload["activity"] == "waiting" else settings.poll_seconds)
             except AccessDenied as error:
                 emit(str(error));return 'denied'
             except (ConnectionError,ValueError) as error:
@@ -91,7 +91,7 @@ def run(settings,ocr,stop,emit,client_factory=ControllerClient):
                 # overwrite newer reports. A server restart also preserves sessions.
     finally:
         if session and stop.is_set():
-            try:client.report(session,sequence+1,dict(activity='offline',details='Offline',team=None,scores=None))
+            try:client.report(session,sequence+1,dict(activity='offline',details='Offline',team=None,scores=None,steam_url=settings.steam_url))
             except (AccessDenied,ConnectionError,ValueError):pass
         engine.close_capture()
         client.close()

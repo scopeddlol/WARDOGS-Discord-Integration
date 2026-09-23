@@ -22,27 +22,9 @@ from desktop_config import Settings, configure_startup, data_dir, load_settings,
 os.environ["WARDOGS_DATA_DIR"] = str(data_dir())
 import wardogs_status_bot as bot
 from desktop_capture import CaptureDialog
+from desktop_style import STYLE
 
-STYLE = """
-QWidget { background: #111820; color: #e9eef5; font: 10pt 'Segoe UI'; }
-QMainWindow { background: #111820; }
-QLabel#eyebrow { color: #d9ef61; font-size: 9pt; font-weight: 700; }
-QLabel#heading { font-size: 27pt; font-weight: 700; }
-QLabel#muted { color: #9eafc1; }
-QLabel#status { background: #202c38; border-radius: 8px; padding: 15px; font-size: 12pt; }
-QLineEdit, QSpinBox, QComboBox, QPlainTextEdit { background: #0b1219; border: 1px solid #364555;
-    border-radius: 5px; padding: 8px; selection-background-color: #516322; }
-QPushButton { background: #253240; border: 1px solid #405064; border-radius: 5px; padding: 10px 16px; }
-QPushButton:hover { background: #344657; }
-QPushButton#primary { color: #15200a; background: #d9ef61; border: 0; font-weight: 700; }
-QPushButton:disabled, QWidget:disabled { color: #697988; }
-QTabWidget::pane { border: 1px solid #2d3c4b; border-radius: 6px; }
-QTabBar::tab { background: #192430; padding: 12px 20px; }
-QTabBar::tab:selected { color: #d9ef61; border-bottom: 2px solid #d9ef61; }
-QCheckBox { spacing: 12px; padding: 3px; }
-QCheckBox::indicator { width: 18px; height: 18px; border: 1px solid #6e8194; border-radius: 3px; background: #0b1219; }
-QCheckBox::indicator:checked { background: #d9ef61; image: url(); border: 3px solid #516322; }
-"""
+
 
 
 def label(text, name=None):
@@ -64,7 +46,8 @@ def button(text, callback, primary=False):
 
 def ocr_path():
     bundled = resources() / "tesseract" / "tesseract.exe"
-    return bundled if bundled.exists() else Path(os.environ.get("TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe"))
+    developer = resources() / "vendor" / "tesseract" / "tesseract.exe"
+    return bundled if bundled.exists() else Path(os.environ.get("TESSERACT_CMD", str(developer if developer.exists() else r"C:\Program Files\Tesseract-OCR\tesseract.exe")))
 
 
 class ActivityHandler(logging.Handler):
@@ -97,20 +80,20 @@ class Window(QMainWindow):
             self.startup_error = "Your saved settings could not be loaded. Re-enter them and Save settings. " + str(error)
         self.setWindowTitle("WARDOGS Discord")
         self.setWindowIcon(QIcon(str(resources() / "tray_icon.png")))
-        self.resize(880, 780)
-        self.setMinimumSize(740, 700)
+        self.resize(900, 800)
+        self.setMinimumSize(760, 700)
         central = QWidget()
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(30, 24, 30, 24)
+        layout.setContentsMargins(28, 22, 28, 22)
         layout.setSpacing(14)
-        layout.addWidget(label("WARDOGS  /  DISCORD COMPANION", "eyebrow"))
-        layout.addWidget(label("Your squad. In the loop.", "heading"))
-        layout.addWidget(label("One live Discord message. You choose what it shares.", "muted"))
-        self.status = label("Broadcast is off", "status")
+        layout.addWidget(label("WARDOGS  /  STANDALONE", "eyebrow"))
+        layout.addWidget(label("Your game, connected.", "heading"))
+        layout.addWidget(label("Capture WARDOGS. Choose what to share. Your bot handles Discord.", "muted"))
+        self.status = label("Offline", "status")
         layout.addWidget(self.status)
         controls = QHBoxLayout()
-        self.start_button = button("Start broadcasting", self.start, True)
-        self.stop_button = button("Stop", self.stop)
+        self.start_button = button("Enable reporting", self.start, True)
+        self.stop_button = button("Disable reporting", self.stop)
         self.stop_button.setEnabled(False)
         controls.addWidget(self.start_button)
         controls.addWidget(self.stop_button)
@@ -186,7 +169,7 @@ class Window(QMainWindow):
         return widget
 
     def connection_page(self):
-        layout = self.page("Connection")
+        layout = self.page("Discord")
         layout.addWidget(label("01  CONNECT YOUR DISCORD BOT", "eyebrow"))
         layout.addWidget(label("Create an application in Discord, open Bot and copy its token. Paste the token below, then click "
                                "Invite bot to server. The invite requests only the three permissions it needs.", "muted"))
@@ -198,7 +181,8 @@ class Window(QMainWindow):
         layout.addLayout(row)
         form = QFormLayout()
         form.setSpacing(12)
-        self.field(form, "name", "Your display name")
+        self.field(form, "name", "Player username")
+        self.field(form, "steam_url", "Steam profile URL (optional)").setPlaceholderText("https://steamcommunity.com/id/yourname")
         token = self.field(form, "token", "Bot token", True)
         token.setPlaceholderText("Stored with Windows encryption")
         show = QCheckBox("Show token")
@@ -214,8 +198,8 @@ class Window(QMainWindow):
         layout.addStretch()
 
     def broadcast_page(self):
-        layout = self.page("Broadcast")
-        layout.addWidget(label("02  CHOOSE WHAT TO SHARE", "eyebrow"))
+        layout = self.page("Share")
+        layout.addWidget(label("02  CHOOSE WHAT TO REPORT", "eyebrow"))
         for key, title in [("server", "Server name and region"), ("server_id", "Server ID — lets friends find your match"),
                            ("queue", "Queue position"), ("team", "Faction / team"),
                            ("scores", "Live team scores"), ("offline", "Not-in-game status")]:
@@ -231,20 +215,16 @@ class Window(QMainWindow):
     def capture_page(self):
         layout = self.page("Capture")
         layout.addWidget(label("03  GAME DETECTION", "eyebrow"))
-        layout.addWidget(label("Server details are read from the pause menu. Open it briefly after joining. "
+        layout.addWidget(label("The app watches only WARDOGS, including behind other apps. The HUD detects matches; the pause menu adds server details when available. "
                                "For faction detection, set the game's Interface → Faction to Always On.", "muted"))
         form = QFormLayout()
         self.monitor = QComboBox()
-        try:
-            import mss
-            with mss.MSS() as capture:
-                for index, monitor in enumerate(capture.monitors[1:], 1):
-                    self.monitor.addItem(f"Display {index} · {monitor['width']} × {monitor['height']}", index)
-        except Exception:
-            self.monitor.addItem("No displays available", 0)
-        self.monitor.setAccessibleName("Game display")
-        self.monitor.setCurrentIndex(max(0, self.monitor.findData(self.settings.monitor)))
-        form.addRow("Game display", self.monitor)
+        self.monitor.addItem("WARDOGS window · automatic", 1)
+        self.window_selector = QComboBox()
+        self.window_selector.setAccessibleName("WARDOGS window")
+        form.addRow("WARDOGS window", self.window_selector)
+        layout.addWidget(button("Refresh game windows", self.refresh_windows))
+        self.refresh_windows()
         for key, title, minimum, maximum in [("poll_seconds", "Scan every (seconds)", 2, 60),
                                               ("score_seconds", "Update scores every (seconds)", 15, 600)]:
             widget = QSpinBox()
@@ -253,6 +233,9 @@ class Window(QMainWindow):
             form.addRow(title, widget)
             self.inputs[key] = widget
         layout.addLayout(form)
+        self.check(layout, "hide_capture_border", "Hide the Windows capture border when permitted")
+        layout.addWidget(button("Open Windows border permission", self.open_border_permission))
+        layout.addWidget(label("Windows controls this permission. Allow screenshot-border access for this app in the page that opens, then restart reporting.", "muted"))
         layout.addWidget(button("Adjust capture boxes…", self.calibrate))
         self.read_button = button("Read screen in 5 seconds", self.preview)
         layout.addWidget(self.read_button)
@@ -260,6 +243,24 @@ class Window(QMainWindow):
         layout.addWidget(self.preview_result)
         layout.addStretch()
         layout.addWidget(label("OCR engine: " + ("Bundled and ready" if ocr_path().exists() else "Missing — use the Windows installer"), "muted"))
+
+    def refresh_windows(self):
+        from window_capture import game_windows
+        selected = self.window_selector.currentData() or self.settings.window_title
+        self.window_selector.clear()
+        self.window_selector.addItem("Automatic detection", "")
+        try:
+            for hwnd, title, minimized in game_windows():
+                key = title or f"HWND:{hwnd}"
+                self.window_selector.addItem(f"{title or 'Untitled WARDOGS window'} · {hwnd}" + (" · minimized" if minimized else ""), key)
+        except OSError:
+            pass
+        index = self.window_selector.findData(selected)
+        if index >= 0:
+            self.window_selector.setCurrentIndex(index)
+
+    def open_border_permission(self):
+        QDesktopServices.openUrl(QUrl("ms-settings:privacy-graphicscapturewithoutborder"))
 
     def collect(self):
         settings = replace(self.settings)
@@ -272,6 +273,7 @@ class Window(QMainWindow):
                 value = widget.text().strip()
             setattr(settings, key, value)
         settings.monitor = self.monitor.currentData() or 0
+        settings.window_title = self.window_selector.currentData() or ""
         return settings
 
     def error(self, text):
@@ -324,6 +326,7 @@ class Window(QMainWindow):
         except BaseException as error:
             self.events.put(("error", f"Broadcast stopped: {type(error).__name__}. See Activity for details."))
         finally:
+            bot.close_capture()
             self.events.put(("stopped", None))
 
     def stop(self):
@@ -408,6 +411,7 @@ class Window(QMainWindow):
                 return
             bot.configure_desktop(settings, ocr_path())
             _, status, team, scores = bot.capture_and_parse()
+            if scores is not None and status is None: status = "In a match"
             self.events.put(("preview", f"Server: {status or 'Not detected — open the pause menu'}\n"
                              f"Faction: {team or 'Not detected'}\nScores: {scores or 'Not detected'}"))
         self.stop_event.clear()
@@ -496,6 +500,7 @@ def main():
         QFontDatabase.addApplicationFont("C:/Windows/Fonts/segoeui.ttf")
         QFontDatabase.addApplicationFont("C:/Windows/Fonts/segoeuib.ttf")
     app.setApplicationName("WARDOGS Discord")
+    app.setWindowIcon(QIcon(str(resources() / "tray_icon.png")))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     app.setQuitOnLastWindowClosed(False)
