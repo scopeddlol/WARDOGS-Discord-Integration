@@ -10,6 +10,7 @@ from pathlib import Path
 import queue
 import sys
 import threading
+import time
 
 from PySide6.QtCore import QTimer,Qt
 from PySide6.QtGui import QIcon,QFontDatabase
@@ -45,6 +46,7 @@ class Window(QMainWindow):
     def __init__(self,smoke=False):
         super().__init__()
         self.events=queue.Queue();self.stop_event=threading.Event();self.worker=None;self.busy=False;self.quitting=False;self.tray=None
+        self.auto_blocked=False;self.next_game_check=0
         error=None
         try:self.settings=config.Settings() if smoke else config.load()
         except (ValueError,TypeError,OSError) as exc:self.settings=config.Settings();error='Saved settings could not be loaded. Pair again. '+str(exc)
@@ -55,23 +57,22 @@ class Window(QMainWindow):
         layout.addWidget(label('Your squad. One connection.','heading'))
         layout.addWidget(label('Pair with your host. Choose your stats. Your controller handles Discord.','muted'))
         self.status=label('Reporting is off','status');layout.addWidget(self.status)
-        controls=QHBoxLayout();self.start_button=button('Start reporting',self.start,True);self.stop_button=button('Stop',self.stop);self.stop_button.setEnabled(False)
+        controls=QHBoxLayout();self.start_button=button('Enable reporting',self.start,True);self.stop_button=button('Disable reporting',self.stop);self.stop_button.setEnabled(False)
         self.save_button=button('Save settings',self.save)
         controls.addWidget(self.start_button);controls.addWidget(self.stop_button);controls.addStretch();controls.addWidget(self.save_button);layout.addLayout(controls)
         self.tabs=QTabWidget();layout.addWidget(self.tabs,1);self.pages=[];self.inputs={}
         self.connection_page();self.share_page();self.capture_page()
         self.activity=QPlainTextEdit();self.activity.setReadOnly(True);self.activity.setMaximumBlockCount(300);self.tabs.addTab(self.activity,'Activity')
-        layout.addWidget(label('Only your chosen text stats go to the controller. No automatic screenshot uploads.\nClosing keeps the agent in the tray. Stop pauses reporting; the controller updates the shared message.','muted'))
+        layout.addWidget(label('Only your chosen text stats go to the controller. No automatic screenshot uploads.\nDisabling stops OCR and reports you offline. The tray stays available to re-enable reporting.','muted'))
         self.setCentralWidget(root)
         self.timer=QTimer(self);self.timer.timeout.connect(self.tick);self.timer.start(100)
         if not smoke and QSystemTrayIcon.isSystemTrayAvailable():
             self.tray=QSystemTrayIcon(self.windowIcon(),self);menu=QMenu(self)
-            menu.addAction('Open settings',self.show_window);self.tray_start=menu.addAction('Start reporting',self.start);self.tray_stop=menu.addAction('Stop reporting',self.stop);self.tray_stop.setEnabled(False)
+            menu.addAction('Open settings',self.show_window);self.tray_start=menu.addAction('Enable reporting',self.start);self.tray_stop=menu.addAction('Disable reporting',self.stop);self.tray_stop.setEnabled(False)
             menu.addSeparator();menu.addAction('Quit',self.quit_app);self.tray.setContextMenu(menu);self.tray.setToolTip('WARDOGS Agent · reporting off')
             self.tray.activated.connect(lambda reason:self.show_window() if reason==QSystemTrayIcon.DoubleClick else None);self.tray.show()
-        self.sync_pairing()
+        self.sync_pairing();self.lock(False)
         if error:QTimer.singleShot(0,lambda:self.error(error))
-        elif not smoke and self.settings.auto_start:QTimer.singleShot(0,self.start)
 
     def page(self,title):
         widget=QWidget();layout=QVBoxLayout(widget);layout.setContentsMargins(20,18,20,18);layout.setSpacing(12)
@@ -103,7 +104,7 @@ class Window(QMainWindow):
         for key,title in [('server','Server name / region'),('server_id','Server ID'),('queue','Queue position'),('team','Faction / team'),('scores','Live team scores'),('offline','Not-in-game status')]:self.check(layout,key,title)
         self.inputs['server'].toggled.connect(self.inputs['server_id'].setEnabled);self.inputs['server_id'].setEnabled(self.settings.server)
         layout.addWidget(label('Disabled details are removed before they leave this PC. Your host controls the shared embed layout.','muted'));layout.addStretch()
-        self.check(layout,'launch_at_login','Open the agent when I sign in to Windows');self.check(layout,'auto_start','Start reporting automatically when the agent opens')
+        self.check(layout,'launch_at_login','Open the agent when I sign in to Windows');self.check(layout,'start_when_game_runs','Start reporting when WARDOGS opens; stop when it closes')
 
     def capture_page(self):
         layout=self.page('Capture');layout.addWidget(label('03  GAME DETECTION','eyebrow'))
@@ -140,13 +141,14 @@ class Window(QMainWindow):
     def save(self):
         try:
             settings=self.collect();settings.validate();config.save(settings);config.startup(settings.launch_at_login);self.settings=settings
-            self.status.setText('Settings saved · reporting is off');return True
+            self.status.setText('Settings saved · '+('reporting enabled' if settings.reporting_enabled else 'reporting off'));return True
         except (ValueError,OSError) as error:self.error(str(error));return False
 
     def lock(self,active):
         for page in self.pages:page.setEnabled(not active)
-        self.start_button.setEnabled(not active);self.save_button.setEnabled(not active);self.stop_button.setEnabled(active and self.worker is not None)
-        if self.tray:self.tray_start.setEnabled(not active);self.tray_stop.setEnabled(active and self.worker is not None)
+        self.start_button.setEnabled(not active and not self.settings.reporting_enabled);self.save_button.setEnabled(not active)
+        self.stop_button.setEnabled(self.settings.reporting_enabled and not self.busy)
+        if self.tray:self.tray_start.setEnabled(not active and not self.settings.reporting_enabled);self.tray_stop.setEnabled(self.settings.reporting_enabled and not self.busy)
         if not active:self.sync_pairing()
 
     def background(self,operation):
@@ -176,10 +178,10 @@ class Window(QMainWindow):
 
     def forget(self):
         if QMessageBox.question(self,'Forget pairing','Remove this PC’s saved credential? The host must issue a new PIN to pair again. This does not revoke the credential on the controller.')!=QMessageBox.Yes:return
-        settings=self.collect();settings.token='';settings.agent_id='';settings.auto_start=False
+        settings=self.collect();settings.token='';settings.agent_id='';settings.reporting_enabled=False
         try:config.save(settings)
         except (ValueError,OSError) as error:self.error(str(error));return
-        self.settings=settings;self.inputs['auto_start'].setChecked(False);self.pin.clear();self.sync_pairing();self.status.setText('Pairing forgotten on this PC')
+        self.settings=settings;self.pin.clear();self.lock(False);self.status.setText('Pairing forgotten on this PC')
 
     def start(self):
         if self.worker or self.busy:return
@@ -187,15 +189,54 @@ class Window(QMainWindow):
         except ValueError as error:self.error(str(error));return
         if not ocr_path().exists():self.error('OCR is missing. Reinstall using WARDOGS-Agent-Setup.exe.');return
         if not self.save():return
+        self.settings.reporting_enabled=True
+        try:config.save(self.settings)
+        except (ValueError,OSError) as error:self.settings.reporting_enabled=False;self.error(str(error));return
+        self.auto_blocked=False;self.lock(False);self.check_game(force=True)
+
+    def launch_worker(self):
+        if self.worker or self.busy or not self.settings.reporting_enabled:return
+        if not self.settings.token or not ocr_path().exists():
+            self.auto_blocked=True;self.status.setText('Reporting cannot start · check pairing and bundled OCR');return
         self.stop_event.clear()
         def work():
-            try:reporter.run(self.settings,ocr_path(),self.stop_event,lambda message:self.events.put(('status',message)))
-            except Exception as error:self.events.put(('error','Reporting stopped: '+type(error).__name__))
-            finally:self.events.put(('stopped',None))
+            outcome=None
+            try:outcome=reporter.run(self.settings,ocr_path(),self.stop_event,lambda message:self.events.put(('status',message)))
+            except Exception as error:outcome='error';self.events.put(('error','Reporting stopped: '+type(error).__name__))
+            finally:self.events.put(('stopped',outcome))
         self.worker=threading.Thread(target=work,daemon=True);self.lock(True);self.worker.start();self.status.setText('Connecting to controller…')
 
     def stop(self):
-        if self.worker:self.stop_event.set();self.stop_button.setEnabled(False);self.status.setText('Stopping · finishing the current read/request…')
+        if not self.settings.reporting_enabled and not self.worker:return
+        self.settings.reporting_enabled=False
+        try:config.save(self.settings)
+        except (ValueError,OSError) as error:self.activity.appendPlainText('Could not save disabled preference: '+str(error))
+        self.stop_event.set();self.lock(self.worker is not None)
+        if self.worker:self.status.setText('Stopping OCR · notifying controller you are offline…')
+        else:self.status.setText('Reporting disabled · offline');self.notify_offline()
+
+    def notify_offline(self):
+        if not self.settings.token:return
+        def work():
+            client=ControllerClient(self.settings.url,self.settings.token)
+            try:client.offline()
+            except (ConnectionError,ValueError) as error:self.events.put(('status','Offline update pending · '+str(error)))
+            except Exception:self.events.put(('status','Offline update could not reach the controller.'))
+            finally:client.close()
+        threading.Thread(target=work,daemon=True).start()
+
+    def check_game(self,force=False):
+        if self.quitting or not self.settings.reporting_enabled or self.busy or self.auto_blocked:return
+        now=time.monotonic()
+        if not force and now<self.next_game_check:return
+        self.next_game_check=now+2
+        try:running=engine.is_game_running()
+        except Exception:return
+        if self.settings.start_when_game_runs and not running:
+            if self.worker and not self.stop_event.is_set():
+                self.stop_event.set();self.status.setText('WARDOGS closed · reporting offline…')
+            elif not self.worker:self.status.setText('Reporting enabled · waiting for WARDOGS')
+        elif not self.worker:self.launch_worker()
 
     def calibrate(self):
         settings=self.collect();dialog=CaptureDialog(settings,self)
@@ -217,23 +258,32 @@ class Window(QMainWindow):
             kind,value=self.events.get_nowait()
             if kind=='status':
                 self.activity.appendPlainText(value)
-                if not self.stop_event.is_set():self.status.setText(value)
+                if not self.stop_event.is_set() or value.startswith('Offline update'):self.status.setText(value)
                 if self.tray:self.tray.setToolTip(('WARDOGS Agent · '+value)[:127])
             elif kind=='preview':self.preview_result.setText(value)
             elif kind=='paired':
-                self.settings=value;self.inputs['username'].setText(value.username);self.inputs['url'].setText(value.url);self.pin.clear();self.sync_pairing();self.status.setText('Paired successfully · choose your stats and Start reporting')
+                self.settings=value;self.inputs['username'].setText(value.username);self.inputs['url'].setText(value.url);self.pin.clear();self.sync_pairing();self.status.setText('Paired successfully · choose your stats and Enable reporting')
             elif kind=='error':
                 if not self.quitting:self.error(value)
             elif kind=='idle':self.busy=False;self.lock(False)
             elif kind=='stopped':
-                self.worker=None;self.lock(False);self.status.setText('Reporting is off · check Activity for the last connection status')
-                if self.tray:self.tray.setToolTip('WARDOGS Agent · reporting off')
+                self.worker=None
+                if value in ('denied','error'):
+                    self.settings.reporting_enabled=False;self.auto_blocked=True
+                    try:config.save(self.settings)
+                    except (ValueError,OSError):pass
+                self.lock(False)
+                if value=='denied':self.status.setText('Controller denied access · reporting disabled')
+                elif value=='error':self.status.setText('Reporting stopped after an error · check Activity')
+                else:self.status.setText('Reporting enabled · waiting for WARDOGS' if self.settings.reporting_enabled else 'Reporting disabled · offline')
+                if self.tray:self.tray.setToolTip('WARDOGS Agent · '+('waiting for WARDOGS' if self.settings.reporting_enabled else 'offline'))
+        self.check_game()
         if self.quitting and not self.worker and not self.busy:
             if self.tray:self.tray.hide()
             QApplication.instance().quit()
 
     def show_window(self):self.showNormal();self.raise_();self.activateWindow()
-    def quit_app(self):self.quitting=True;self.stop_event.set();self.stop()
+    def quit_app(self):self.quitting=True;self.stop_event.set()
     def closeEvent(self,event):
         event.ignore()
         if self.tray:self.hide()

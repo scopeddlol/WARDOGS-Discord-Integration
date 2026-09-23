@@ -233,3 +233,33 @@ def test_combined_uploaded_image_budget(client,monkeypatch):
     assert client.app.state.store.snapshot()['layout'].image==''
     response=client.put('/api/admin/layout',headers=headers(),json=Layout(image=first,thumbnail=first).model_dump())
     assert response.status_code==200
+
+def test_explicit_offline_is_not_a_timeout(tmp_path):
+    now=[1000.]
+    store=Store(tmp_path/'db.sqlite3',ADMIN,lambda:now[0])
+    invite=store.create_pin('Scout')
+    agent=store.redeem('Scout',invite['pin'])
+    assert store.roster()[0]['connection']=='offline'
+    session=store.start(agent['token'])['session_id']
+    store.report(agent['token'],Report(session_id=session,sequence=1,activity='match',details='East #1',scores=(1,2,3)))
+    store.report(agent['token'],Report(session_id=session,sequence=2,activity='offline',details='Reporting disabled'))
+    now[0]+=120
+    store.expire(90)
+    row=store.roster()[0]
+    assert row['connection']=='offline'
+    assert row['status']=={'activity':'offline','details':'Reporting disabled','team':None,'scores':None}
+    assert store.snapshot()['agents'][0]['connection']=='offline'
+
+
+def test_idle_offline_endpoint_and_legacy_paused(client):
+    agent,_=pair(client)
+    auth=headers(agent['token'])
+    session=client.post('/api/v1/session',headers=auth).json()['session_id']
+    legacy=client.put('/api/v1/status',headers=auth,json={'session_id':session,'sequence':1,'activity':'paused','details':'Paused'})
+    assert legacy.status_code==200
+    assert client.app.state.store.roster()[0]['connection']=='offline'
+    session=client.post('/api/v1/session',headers=auth).json()['session_id']
+    assert client.post('/api/v1/offline').status_code==401
+    assert client.post('/api/v1/offline',headers=auth).json()=={'ok':True}
+    assert client.app.state.store.roster()[0]['connection']=='offline'
+    assert client.put('/api/v1/status',headers=auth,json={'session_id':session,'sequence':1,'activity':'match'}).status_code==403

@@ -160,7 +160,7 @@ async function updatePreview(){
   if(!adminKey)return;const generation=++previewGeneration;
   try{const result=await api('admin/preview',{method:'POST',body:{layout:layout(),sample_count:$('preview-source').value==='sample'?Number($('sample-count').value):null}});if(generation!==previewGeneration)return;await drawEmbed(result.embed,generation);if(generation!==previewGeneration)return;
     $('budget-text').textContent=result.characters.toLocaleString()+' / 6,000 characters';$('budget-bar').value=result.characters;$('shown-text').textContent=`${result.shown} / ${result.total} players shown`;
-    $('preview-error').textContent='';$('preview-warnings').replaceChildren(...result.warnings.map(w=>node('p','',w)));if(result.hidden)$('preview-warnings').append(node('p','',result.hidden+' disconnected/paused player(s) hidden by your filter.'));
+    $('preview-error').textContent='';$('preview-warnings').replaceChildren(...result.warnings.map(w=>node('p','',w)));if(result.hidden)$('preview-warnings').append(node('p','',result.hidden+' offline/disconnected player(s) hidden by your filter.'));
   }catch(e){if(generation===previewGeneration)$('preview-error').textContent=e.message;}
 }
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});

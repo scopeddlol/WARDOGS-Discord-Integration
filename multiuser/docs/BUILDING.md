@@ -1,6 +1,6 @@
 # Build and verification
 
-All commands below start in `multiuser/`. This edition deliberately has its own dependencies, packaging, tests and source snapshot. It imports no application modules from the repository root. Root standalone behavior and release workflow remain unchanged.
+All commands below start in `multiuser/`. This edition deliberately has its own dependencies, packaging, tests and source snapshot. It imports no application modules from the repository root. The combined workflow retains the standalone build and installer checks.
 
 ## Controller development
 
@@ -40,10 +40,12 @@ Output: `dist/WARDOGS-Agent-Setup.exe` and `dist/SHA256SUMS.txt`. The installer 
 
 ## Automation and coverage
 
-`.github/workflows/multiuser.yml` runs controller behavior tests on Linux, builds the actual non-root Docker image, exercises ten agents over HTTP and verifies database/image-layout persistence after restart. Its Windows job checks agent privacy, transport, DPAPI and interface behavior, then builds and lifecycle-tests the installer. Download the `multiuser-agent-installer` artifact from that run; verification evidence is a separate artifact.
+`.github/workflows/build.yml` builds both Windows installers in separate jobs and runs controller behavior tests on Linux, builds the actual non-root Docker image, exercises ten agents over HTTP and verifies database/image-layout persistence after restart. The agent job checks privacy, transport, DPAPI and interface behavior, then builds and lifecycle-tests the installer. Download the `standalone-installer` and `agent-installer` artifacts from the same run; verification evidence is uploaded separately.
 
 Test files use `*_checks.py` and are invoked explicitly so the standalone project's existing pytest discovery is unaffected. Controller checks use a mock Discord transport to verify one create followed by edits, deleted-message recovery, attachment retention/removal and rate-limit handling. Tests do not require or leak a real bot token.
 
 Actual WARDOGS gameplay and a real Discord channel remain environment-dependent acceptance checks. Test those after configuring your own controller. Browser previews approximate Discord rendering; Discord is the final authority on Markdown, layout and media handling.
 
 The isolated `agent/engine.py` and calibration code originate from the root project's OCR implementation at commit `448eb24`. Future OCR fixes should be evaluated and copied deliberately; neither edition should import the other's runtime configuration or credentials.
+
+The publish job runs only for pushes to `master` and version tags, uses the repository `GITHUB_TOKEN` with `packages: write`, and publishes the tested controller source to GHCR. PR builds never receive registry write access. A version tag also creates a draft release containing both installer executables and one combined checksum file.

@@ -101,7 +101,7 @@ class Store:
                 if hmac.compare_digest(row['pin_hash'], self.pin_hash(key, pin)):
                     token = secrets.token_urlsafe(32)
                     db.execute('UPDATE agents SET token_hash=?,enabled=1,session_id=NULL,sequence=0,connection=?,status=? WHERE name_key=?',
-                               (digest(token), 'paired', state('waiting', 'Paired · reporting is off'), key))
+                               (digest(token), 'offline', state('offline', 'Reporting is off'), key))
                     db.execute('DELETE FROM pairings WHERE name_key=?', (key,))
                     agent = db.execute('SELECT id,username FROM agents WHERE name_key=?', (key,)).fetchone()
                     result = {'agent_id': agent['id'], 'username': agent['username'], 'token': token, 'heartbeat_seconds': 15}
@@ -130,10 +130,12 @@ class Store:
 
     def report(self, token, report):
         payload = report.model_dump(exclude={'session_id', 'sequence'})
+        if payload['activity'] == 'paused':
+            payload['activity'] = 'offline'  # Earlier installed agents used this name.
         if payload['activity'] != 'match':
             payload['team'], payload['scores'] = None, None
         status = json.dumps(payload, sort_keys=True)
-        connection = 'paused' if report.activity == 'paused' else 'connected'
+        connection = 'offline' if payload['activity'] == 'offline' else 'connected'
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             row = self.authenticate(db, token)
@@ -143,10 +145,21 @@ class Store:
                 return {'accepted': False}  # Retried / delayed packets cannot overwrite a newer status.
             db.execute('UPDATE agents SET sequence=?,last_seen=?,connection=?,status=?,session_id=? WHERE id=?',
                        (report.sequence, self.clock(), connection, status,
-                        None if report.activity == 'paused' else report.session_id, row['id']))
+                        None if payload['activity'] == 'offline' else report.session_id, row['id']))
             if status != row['status'] or connection != row['connection']:
                 db.execute('UPDATE board SET revision=revision+1 WHERE id=1')
         return {'accepted': True}
+
+    def offline(self, token):
+        """Allow an idle agent to clear a stale online session when reporting is disabled."""
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = self.authenticate(db, token)
+            if row['connection'] != 'offline' or row['session_id']:
+                db.execute('UPDATE agents SET session_id=NULL,connection=?,status=?,last_seen=? WHERE id=?',
+                           ('offline', state('offline', 'Reporting disabled'), self.clock(), row['id']))
+                db.execute('UPDATE board SET revision=revision+1 WHERE id=1')
+        return {'ok': True}
 
     def control(self, agent_id, enabled=None, revoke=False):
         with self.db() as db:
@@ -160,7 +173,7 @@ class Store:
                 db.execute('DELETE FROM pairings WHERE name_key=?', (row['name_key'],))
             else:
                 db.execute('UPDATE agents SET enabled=?,session_id=NULL,connection=?,status=? WHERE id=?',
-                           (int(enabled), 'paused', state('paused', 'Ready to reconnect' if enabled else 'Paused by controller host'), agent_id))
+                           (int(enabled), 'offline', state('offline', 'Ready to reconnect' if enabled else 'Reporting disabled by controller host'), agent_id))
             db.execute('UPDATE board SET revision=revision+1 WHERE id=1')
 
     def expire(self, seconds):

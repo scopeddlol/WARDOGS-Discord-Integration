@@ -29,7 +29,7 @@ class Redeem(Pairing):
 class Report(StrictModel):
     session_id: str = Field(pattern=r'^[a-f0-9]{32}$')
     sequence: int = Field(ge=1, le=2**53)
-    activity: Literal['waiting', 'menu', 'match', 'queue', 'paused']
+    activity: Literal['waiting', 'menu', 'match', 'queue', 'offline', 'paused']
     details: str = Field(default='', max_length=240)
     team: Literal['Lonestar', 'Valkyra', 'Manticore'] | None = None
     scores: tuple[int, int, int] | None = None

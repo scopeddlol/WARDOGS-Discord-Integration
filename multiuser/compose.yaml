@@ -1,8 +1,6 @@
 services:
   controller:
-    build:
-      context: .
-      dockerfile: controller/Dockerfile
+    image: ${CONTROLLER_IMAGE:-ghcr.io/scopeddlol/wardogs-controller:latest}
     restart: unless-stopped
     env_file: .env
     volumes:

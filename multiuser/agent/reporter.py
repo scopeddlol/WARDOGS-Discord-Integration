@@ -82,7 +82,7 @@ def run(settings,ocr,stop,emit,client_factory=ControllerClient):
                 backoff=2
                 stop.wait(settings.poll_seconds)
             except AccessDenied as error:
-                emit(str(error));return
+                emit(str(error));return 'denied'
             except (ConnectionError,ValueError) as error:
                 emit(str(error)+' Reconnecting…')
                 stop.wait(backoff);backoff=min(backoff*2,30)
@@ -90,6 +90,6 @@ def run(settings,ocr,stop,emit,client_factory=ControllerClient):
                 # overwrite newer reports. A server restart also preserves sessions.
     finally:
         if session and stop.is_set():
-            try:client.report(session,sequence+1,dict(activity='paused',details='Reporting paused by player',team=None,scores=None))
+            try:client.report(session,sequence+1,dict(activity='offline',details='Reporting disabled',team=None,scores=None))
             except (AccessDenied,ConnectionError,ValueError):pass
         client.close()
