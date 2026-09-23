@@ -46,7 +46,7 @@ class Settings:
     team: bool = True
     scores: bool = True
     offline: bool = True
-    launch_at_login: bool = False
+    launch_at_login: bool = True
     reporting_enabled: bool = False
     start_when_game_runs: bool = True
     capture_region: str = '0,0.65,1,1'

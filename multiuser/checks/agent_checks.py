@@ -140,6 +140,8 @@ def test_gui_enable_waits_for_game_and_disable_stops_worker(monkeypatch):
     monkeypatch.setattr(window,'save',lambda:True)
     monkeypatch.setattr(desktop,'ocr_path',lambda:Path(__file__))
     monkeypatch.setattr(config,'save',lambda settings:None)
+    startup=[]
+    monkeypatch.setattr(config,'startup',startup.append)
     monkeypatch.setattr(engine,'is_game_running',lambda:False)
     offline=[]
     monkeypatch.setattr(window,'notify_offline',lambda:offline.append(True))
@@ -147,4 +149,5 @@ def test_gui_enable_waits_for_game_and_disable_stops_worker(monkeypatch):
     assert window.settings.reporting_enabled and window.worker is None
     window.stop()
     assert not window.settings.reporting_enabled and offline==[True]
+    assert startup==[True,False]
     window.timer.stop();window.deleteLater();app.processEvents()

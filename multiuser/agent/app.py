@@ -140,7 +140,9 @@ class Window(QMainWindow):
 
     def save(self):
         try:
-            settings=self.collect();settings.validate();config.save(settings);config.startup(settings.launch_at_login);self.settings=settings
+            settings=self.collect();settings.validate();config.save(settings);self.settings=settings
+            try:config.startup(settings.launch_at_login and settings.reporting_enabled)
+            except OSError as error:self.activity.appendPlainText('Could not update Windows startup: '+str(error))
             self.status.setText('Settings saved · '+('reporting enabled' if settings.reporting_enabled else 'reporting off'));return True
         except (ValueError,OSError) as error:self.error(str(error));return False
 
@@ -181,6 +183,8 @@ class Window(QMainWindow):
         settings=self.collect();settings.token='';settings.agent_id='';settings.reporting_enabled=False
         try:config.save(settings)
         except (ValueError,OSError) as error:self.error(str(error));return
+        try:config.startup(False)
+        except OSError as error:self.activity.appendPlainText('Could not remove Windows startup: '+str(error))
         self.settings=settings;self.pin.clear();self.lock(False);self.status.setText('Pairing forgotten on this PC')
 
     def start(self):
@@ -192,6 +196,8 @@ class Window(QMainWindow):
         self.settings.reporting_enabled=True
         try:config.save(self.settings)
         except (ValueError,OSError) as error:self.settings.reporting_enabled=False;self.error(str(error));return
+        try:config.startup(self.settings.launch_at_login)
+        except OSError as error:self.activity.appendPlainText('Could not configure Windows startup: '+str(error))
         self.auto_blocked=False;self.lock(False);self.check_game(force=True)
 
     def launch_worker(self):
@@ -211,6 +217,8 @@ class Window(QMainWindow):
         self.settings.reporting_enabled=False
         try:config.save(self.settings)
         except (ValueError,OSError) as error:self.activity.appendPlainText('Could not save disabled preference: '+str(error))
+        try:config.startup(False)
+        except OSError as error:self.activity.appendPlainText('Could not remove Windows startup: '+str(error))
         self.stop_event.set();self.lock(self.worker is not None)
         if self.worker:self.status.setText('Stopping OCR · notifying controller you are offline…')
         else:self.status.setText('Reporting disabled · offline');self.notify_offline()
@@ -272,6 +280,8 @@ class Window(QMainWindow):
                     self.settings.reporting_enabled=False;self.auto_blocked=True
                     try:config.save(self.settings)
                     except (ValueError,OSError):pass
+                    try:config.startup(False)
+                    except OSError:pass
                 self.lock(False)
                 if value=='denied':self.status.setText('Controller denied access · reporting disabled')
                 elif value=='error':self.status.setText('Reporting stopped after an error · check Activity')
