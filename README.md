@@ -13,18 +13,18 @@ The installer includes Python, the desktop app, Tesseract, and English OCR data.
 for your Windows account without administrator privileges and adds a Start menu shortcut.
 Windows 10 (1809+) or Windows 11, x64, is required.
 
-During development, installers are also available in the **windows-installer** artifact on
-successful [Windows build runs](https://github.com/scopeddlol/WARDOGS-Discord-Integration/actions/workflows/windows.yml).
+During development, installers are also available in the **standalone-installer** artifact on
+successful [Windows build runs](https://github.com/scopeddlol/WARDOGS-Discord-Integration/actions/workflows/build.yml).
 Download and unzip the artifact to get the setup EXE. GitHub requires sign-in for artifact downloads.
 Builds are currently unsigned; Windows may show an unknown-publisher warning.
 
 ## Connect once, then play
 
-1. Open **Connection** and follow the Developer Portal link to create a Discord bot.
+1. Open **Discord** and follow the Developer Portal link to create a Discord bot.
 2. Invite it to your server with **View Channel**, **Send Messages**, and **Embed Links**.
 3. Paste its token and your text channel ID into the app. Enter your display name.
-4. Click **Check connection**, then choose what to share in **Broadcast**.
-5. Click **Start broadcasting** and launch WARDOGS. Briefly open the pause menu after joining
+4. Click **Check connection**, then choose what to share in **Share**.
+5. Click **Enable reporting** and launch WARDOGS. Briefly open the pause menu after joining
    a server so the app can read its details.
 
 See the [step-by-step setup instructions](docs/SETUP.md) for Discord setup, capture calibration,
@@ -36,8 +36,9 @@ privacy, troubleshooting, and removing your saved settings.
 - Queue position
 - Faction / team and live team scores
 - Not-in-game status
-- Game display, scan frequency, and score update frequency
-- Optional launch at Windows sign-in and automatic broadcasting
+- WARDOGS window selection, scan frequency, and score update frequency
+- Optional Steam profile link on your username, launch at Windows sign-in, and automatic broadcasting
+- A capture-border preference and a button to open Windows screenshot-border permission
 
 Stop broadcasting at any time from the window or system tray. **Stop keeps the last Discord
 message as it was**; no further updates are sent after the current request finishes.
@@ -48,9 +49,10 @@ Settings are editable while stopped, preventing half-applied changes during a br
 
 The original project's screen-reading engine detects pause-menu server details, queue text,
 faction colors, and HUD scores. It does not read game memory or require a game plugin.
-The desktop app captures only while the WARDOGS client is running in the foreground.
-Capture previews are explicit, local-only tests and can capture the selected display after a
-five-second delay. No screenshots are uploaded or saved by normal operation.
+The desktop app captures only the WARDOGS process window, even behind other apps.
+The regular gameplay HUD identifies a match; server details are added whenever the pause menu is seen.
+Minimizing the game holds the last confirmed reading until capture resumes or WARDOGS closes.
+Capture previews are explicit, local-only tests. No screenshots are uploaded or saved by normal operation.
 
 The bot uses Discord's REST API to edit one message, with debounce, score throttling, and
 rate-limit handling. No privileged gateway intents or broad Manage Server permissions are required.

@@ -136,6 +136,8 @@ class Store:
             payload['details'] = 'Offline'
         if payload['activity'] != 'match':
             payload['team'], payload['scores'] = None, None
+        if not payload.get('steam_url'):
+            payload.pop('steam_url', None)
         status = json.dumps(payload, sort_keys=True)
         connection = 'offline' if payload['activity'] == 'offline' else 'connected'
         with self.db() as db:
@@ -158,8 +160,12 @@ class Store:
             db.execute('BEGIN IMMEDIATE')
             row = self.authenticate(db, token)
             if row['connection'] != 'offline' or row['session_id']:
+                previous = json.loads(row['status'])
+                offline = json.loads(state('offline', 'Offline'))
+                if previous.get('steam_url'):
+                    offline['steam_url'] = previous['steam_url']
                 db.execute('UPDATE agents SET session_id=NULL,connection=?,status=?,last_seen=? WHERE id=?',
-                           ('offline', state('offline', 'Offline'), self.clock(), row['id']))
+                           ('offline', json.dumps(offline, sort_keys=True), self.clock(), row['id']))
                 db.execute('UPDATE board SET revision=revision+1 WHERE id=1')
         return {'ok': True}
 
@@ -174,8 +180,12 @@ class Store:
                            ('revoked', state('revoked', 'Agent access revoked'), agent_id))
                 db.execute('DELETE FROM pairings WHERE name_key=?', (row['name_key'],))
             else:
+                previous = json.loads(row['status'])
+                offline = json.loads(state('offline', 'Offline'))
+                if previous.get('steam_url'):
+                    offline['steam_url'] = previous['steam_url']
                 db.execute('UPDATE agents SET enabled=?,session_id=NULL,connection=?,status=? WHERE id=?',
-                           (int(enabled), 'offline', state('offline', 'Offline'), agent_id))
+                           (int(enabled), 'offline', json.dumps(offline, sort_keys=True), agent_id))
             db.execute('UPDATE board SET revision=revision+1 WHERE id=1')
 
     def expire(self, seconds):

@@ -31,8 +31,23 @@ class Report(StrictModel):
     sequence: int = Field(ge=1, le=2**53)
     activity: Literal['waiting', 'menu', 'match', 'queue', 'offline', 'paused']
     details: str = Field(default='', max_length=240)
+    steam_url: str = Field(default='', max_length=300)
     team: Literal['Lonestar', 'Valkyra', 'Manticore'] | None = None
     scores: tuple[int, int, int] | None = None
+
+    @field_validator('steam_url')
+    @classmethod
+    def valid_steam_url(cls, value):
+        from urllib.parse import urlsplit
+        value = value.strip().rstrip('/')
+        if not value:
+            return ''
+        parsed = urlsplit(value)
+        if (parsed.scheme != 'https' or parsed.hostname not in ('steamcommunity.com', 'www.steamcommunity.com')
+                or parsed.username or parsed.password or parsed.port or parsed.query or parsed.fragment
+                or not re.fullmatch(r'/(id|profiles)/[A-Za-z0-9_-]+', parsed.path)):
+            raise ValueError('Use an HTTPS Steam Community profile URL.')
+        return 'https://steamcommunity.com' + parsed.path
 
     @field_validator('scores')
     @classmethod
@@ -49,7 +64,7 @@ class Report(StrictModel):
         return value.strip()
 
 
-PLAYER_VARIABLES = {'username', 'status', 'team', 'scores', 'connection', 'updated', 'icon', 'activity', 'server', 'server_id', 'queue_position', 'queue_total', 'lonestar_score', 'valkyra_score', 'manticore_score'}
+PLAYER_VARIABLES = {'username_link', 'username', 'status', 'team', 'scores', 'connection', 'updated', 'icon', 'activity', 'server', 'server_id', 'queue_position', 'queue_total', 'lonestar_score', 'valkyra_score', 'manticore_score'}
 HEADER_VARIABLES = {'total', 'online', 'playing', 'updated'}
 
 

@@ -90,6 +90,8 @@ def render(layout, agents, now):
                   'connection': ('Online' if connection == 'connected' else 'Offline' if connection == 'offline' else 'Connection lost'),
                   'updated': timestamp(player.get('last_seen')),
                   'icon': '🟢' if connection == 'connected' else '⚫'}
+        steam_url = state.get('steam_url', '')
+        values['username_link'] = f"[{values['username']}]({steam_url})" if steam_url else values['username']
         details = state.get('details', '') if connection == 'connected' else ''
         server_id = re.search(r'ID ([0-9 -]+)', details)
         queued = re.search(r'position (\d+) of (\d+)', details)
@@ -103,7 +105,10 @@ def render(layout, agents, now):
                       lonestar_score=str(scores[0]) if scores else '', valkyra_score=str(scores[1]) if scores else '',
                       manticore_score=str(scores[2]) if scores else '')
         title = limited(fill(layout.player_title, values), 256) or safe(player['username'])
-        body = limited(fill(layout.player_body, values), 1024) or 'No shared details'
+        body = fill(layout.player_body, values) or 'No shared details'
+        if steam_url and '{username_link}' not in layout.player_body:
+            body = values['username_link'] + '\n' + body
+        body = limited(body, 1024)
         if layout.mode == 'cards':
             cost = units(title) + units(body)
             if len(before + player_fields + after) >= 24 or used + cost + 220 > 6000:

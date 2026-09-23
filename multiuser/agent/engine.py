@@ -28,6 +28,7 @@ _game_capture = None
 def configure(settings, ocr):
     global DESKTOP_SETTINGS, DISPLAY_NAME, NOT_IN_GAME, MONITOR_INDEX
     global CAPTURE_REGION, TEAM_ICON_REGION, SCORE_REGION
+    close_capture()
     DESKTOP_SETTINGS = settings
     DISPLAY_NAME = settings.username
     NOT_IN_GAME = DISPLAY_NAME + ' is not in a game'
@@ -126,7 +127,7 @@ def capture_game_frame():
     global _game_capture
     from .window_capture import GameCapture
     if _game_capture is None:
-        _game_capture = GameCapture()
+        _game_capture = GameCapture(DESKTOP_SETTINGS.window_title, DESKTOP_SETTINGS.hide_capture_border)
     return _game_capture.read()
 
 
@@ -362,20 +363,21 @@ def capture_and_parse(require_foreground=False):
         region = lambda box: crop_fraction(frame, box)
     else:
         region = lambda box: grab_region(box, require_foreground)
-    img = preprocess(region(CAPTURE_REGION))
-    text = pytesseract.image_to_string(img, timeout=10)
-    if not text.strip():
-        # Default page segmentation (--psm 3, full automatic layout
-        # analysis) can give up entirely on a busy/noisy background - seen
-        # on the "PRESS ANY BUTTON TO START" splash, which sits over a
-        # detailed rendered scene. --psm 6 is slower but far more reliable
-        # there, so it's only worth paying for as a fallback when the fast
-        # pass found nothing at all.
-        text = pytesseract.image_to_string(img, config="--psm 6", timeout=10)
-    status = determine_status(text)
+    # The normal gameplay HUD is a fast match signal; read it before the
+    # larger pause-menu/server OCR, which may be blank or slow in a match.
     team = detect_team(region(TEAM_ICON_REGION)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.team else None
-    # The score HUD is also a match signal even when score sharing is off.
-    scores = read_scores(region(SCORE_REGION))
+    try:
+        scores = read_scores(region(SCORE_REGION))
+    except (RuntimeError, pytesseract.TesseractError):
+        scores = None
+    img = preprocess(region(CAPTURE_REGION))
+    try:
+        text = pytesseract.image_to_string(img, timeout=5)
+        if not text.strip():
+            text = pytesseract.image_to_string(img, config="--psm 6", timeout=5)
+    except (RuntimeError, pytesseract.TesseractError):
+        text = ''
+    status = determine_status(text)
     return text, status, team, scores
 
 
