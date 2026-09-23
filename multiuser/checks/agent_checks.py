@@ -40,13 +40,13 @@ def test_private_data_filtered_before_transport():
     assert 'East' not in result['details'] and '2' not in result['details']
 
 
-def test_stop_sends_one_paused_status(monkeypatch):
+def test_stop_sends_one_offline_status(monkeypatch):
     stop=threading.Event();client=Mock();client.start.return_value='a'*32
     monkeypatch.setattr(engine,'configure',Mock())
     monkeypatch.setattr(reporter.Detector,'read',lambda self: (stop.set() or {'activity':'match','details':'Private status','team':None,'scores':None}))
     reporter.run(config.Settings(url='https://example.com',token='token'),'ocr',stop,lambda message:None,lambda *args:client)
     assert client.report.call_count==1
-    assert client.report.call_args.args[2]['activity']=='paused'
+    assert client.report.call_args.args[2]['activity']=='offline'
     client.close.assert_called_once()
 
 
@@ -80,4 +80,74 @@ def test_gui_pairing_locks_identity_and_collects_privacy(monkeypatch):
     assert not window.inputs['url'].isEnabled() and not window.pair_button.isEnabled()
     window.inputs['scores'].setChecked(False)
     assert not window.collect().scores
+    window.timer.stop();window.deleteLater();app.processEvents()
+
+def test_game_watcher_starts_only_when_enabled_and_stops_on_exit(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    from agent.app import Window
+    app=QApplication.instance() or QApplication([])
+    window=Window(smoke=True)
+    starts=[]
+    monkeypatch.setattr(window,'launch_worker',lambda:starts.append('start'))
+    monkeypatch.setattr(engine,'is_game_running',lambda:True)
+    window.check_game(force=True)
+    assert starts==[]
+    window.settings.reporting_enabled=True
+    window.check_game(force=True)
+    assert starts==['start']
+    window.worker=object()
+    monkeypatch.setattr(engine,'is_game_running',lambda:False)
+    window.check_game(force=True)
+    assert window.stop_event.is_set()
+    window.worker=None
+    window.settings.reporting_enabled=False
+    window.stop_event.clear()
+    window.check_game(force=True)
+    assert starts==['start'] and not window.stop_event.is_set()
+    window.timer.stop();window.deleteLater();app.processEvents()
+
+
+def test_idle_offline_request_uses_agent_credential():
+    session=Mock();session.request.return_value=Mock(status_code=200,ok=True,json=lambda:{'ok':True})
+    client=ControllerClient('https://controller.example','agent-token',session)
+    assert client.offline()=={'ok':True}
+    args,kwargs=session.request.call_args
+    assert args[:2]==('POST','https://controller.example/api/v1/offline')
+    assert kwargs['headers']=={'Authorization':'Bearer agent-token'}
+
+def test_old_auto_start_setting_migrates_to_enabled_game_detection(tmp_path):
+    import json
+    settings=config.Settings(url='https://example.com',username='Scout',agent_id='uuid',token='credential')
+    path=tmp_path/'settings.json'
+    config.save(settings,path)
+    raw=json.loads(path.read_text(encoding='utf-8'))
+    raw.pop('reporting_enabled')
+    raw.pop('start_when_game_runs')
+    raw['auto_start']=True
+    path.write_text(json.dumps(raw),encoding='utf-8')
+    loaded=config.load(path)
+    assert loaded.reporting_enabled and loaded.start_when_game_runs
+    assert loaded.token=='credential'
+
+
+def test_gui_enable_waits_for_game_and_disable_stops_worker(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    from agent import app as desktop
+    app=QApplication.instance() or QApplication([])
+    window=desktop.Window(smoke=True)
+    settings=config.Settings(url='https://example.com',username='Scout',agent_id='uuid',token='credential')
+    monkeypatch.setattr(window,'collect',lambda:settings)
+    monkeypatch.setattr(window,'save',lambda:True)
+    monkeypatch.setattr(desktop,'ocr_path',lambda:Path(__file__))
+    monkeypatch.setattr(config,'save',lambda settings:None)
+    startup=[]
+    monkeypatch.setattr(config,'startup',startup.append)
+    monkeypatch.setattr(engine,'is_game_running',lambda:False)
+    offline=[]
+    monkeypatch.setattr(window,'notify_offline',lambda:offline.append(True))
+    window.start()
+    assert window.settings.reporting_enabled and window.worker is None
+    window.stop()
+    assert not window.settings.reporting_enabled and offline==[True]
+    assert startup==[True,False]
     window.timer.stop();window.deleteLater();app.processEvents()

@@ -46,5 +46,8 @@ class ControllerClient:
     def report(self,session_id,sequence,payload):
         return self.request('PUT','status',dict(payload,session_id=session_id,sequence=sequence))
 
+    def offline(self):
+        return self.request('POST','offline')
+
     def close(self):
         self.http.close()

@@ -132,6 +132,10 @@ def create_app(config=None):
     def report(body: Report, request: Request):
         return store.report(bearer(request), body)
 
+    @app.post('/api/v1/offline')
+    def offline(request: Request):
+        return store.offline(bearer(request))
+
     @app.get('/api/admin/state', dependencies=[Depends(admin)])
     def current():
         store.expire(config.stale_seconds)

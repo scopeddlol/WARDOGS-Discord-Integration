@@ -46,8 +46,9 @@ class Settings:
     team: bool = True
     scores: bool = True
     offline: bool = True
-    launch_at_login: bool = False
-    auto_start: bool = False
+    launch_at_login: bool = True
+    reporting_enabled: bool = False
+    start_when_game_runs: bool = True
     capture_region: str = '0,0.65,1,1'
     team_region: str = '0.960,0.925,0.990,0.965'
     score_region: str = '0.0169,0.9139,0.1497,0.9514'
@@ -81,7 +82,8 @@ def load(path=None):
     defaults=Settings()
     for field in fields(Settings):
         if field.name=='token':continue
-        value=raw.get(field.name,getattr(defaults,field.name))
+        # Older agents used auto_start for the saved on/off choice.
+        value=raw.get(field.name,raw.get('auto_start',False) if field.name=='reporting_enabled' else getattr(defaults,field.name))
         if type(value) is not type(getattr(defaults,field.name)):
             raise ValueError('Invalid saved setting: '+field.name)
         values[field.name]=value

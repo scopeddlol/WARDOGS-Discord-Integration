@@ -18,7 +18,8 @@ Keep `.env` private. It is excluded from Git and the Docker build context. Do no
 Connect your proxy to the same Docker network as this Compose service. If the network does not already exist, create it and attach your proxy. Start the controller:
 
 ```sh
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose logs -f controller
 ```
 
@@ -51,16 +52,22 @@ Visit the HTTPS URL and sign in with the admin key. The key is kept only in tab 
 
 Generate a PIN for each player's chosen username in **Players**. Names are normalized and case-insensitive for identity; duplicate names refer to the same player UUID. PINs expire after ten minutes, work once, and lock after five incorrect attempts. Generating a new PIN replaces the previous pending PIN. Redeeming it rotates that player's credential and stops an old installation from reporting.
 
-**Disable** blocks reporting until re-enabled; the player then presses Start again. **Revoke** destroys the credential and pending PIN; generate a new PIN to restore access. Stopping the agent posts a paused state. A disconnected agent is marked stale after 90 seconds by default and its old scores are cleared. The controller supports up to 100 registered players; the embed's actual capacity depends on templates and Discord's limits.
+**Disable** blocks reporting until re-enabled; the player then enables reporting again. **Revoke** destroys the credential and pending PIN; generate a new PIN to restore access. Disabling reporting or closing the game posts an offline state and clears old scores. A lost connection is marked disconnected after 90 seconds by default. The controller supports up to 100 registered players; the embed's actual capacity depends on templates and Discord's limits.
 
 The first publish creates the board. Later updates edit its saved message ID, including after restart. A deleted Discord message is recreated. Changes are combined at 15-second intervals by default; Discord rate-limit retries are respected. Initial creation uses a stable nonce to avoid duplicate creates during short response-loss retries. This is not a distributed exactly-once delivery system: run only one instance, and verify the channel after restoring old backups or prolonged ambiguous network failures. Changing the target channel creates a board in the new channel; remove the old one manually if desired.
 
 ## Persistence and operations
 
-The named `controller-data` volume contains the database and images under `/data`. Back up the complete volume while the controller is stopped so SQLite and attachments stay consistent. Preserve it during updates (`docker compose up -d --build`); `docker compose down -v` would delete it. The message ID, layout, credentials and player roster survive a normal container restart.
+The named `controller-data` volume contains the database and images under `/data`. Back up the complete volume while the controller is stopped so SQLite and attachments stay consistent. Preserve it during updates with `docker compose pull` followed by `docker compose up -d`; `docker compose down -v` would delete it. The message ID, layout, credentials and player roster survive a normal container restart.
 
 The image runs as UID 10001 with a read-only root filesystem. If replacing the named volume with a bind mount, make `/data` writable by that UID. Do not start multiple replicas or Uvicorn workers: there is deliberately one publisher.
 
 `PUBLISH_INTERVAL_SECONDS` defaults to 15 (minimum 5). `AGENT_TIMEOUT_SECONDS` defaults to 90 (minimum 45). Agents heartbeat every 15 seconds. `DISCORD_DRY_RUN=1` renders and exercises the API without sending to Discord; use it only for testing. Remove it and restart for real delivery. Errors appear in the admin header; check channel permissions, credentials and network connectivity first.
 
 Images are private on the controller; only authenticated admins can retrieve them. Publishing makes attached images visible to the Discord channel. Total stored uploads are capped at 256 MB; there is no automatic asset deletion. Remove unused files only while stopped and after checking the saved layout and taking a backup. Agents never upload screenshots.
+
+## GHCR image and source builds
+
+The combined GitHub Actions workflow builds both Windows installers on every PR and push. After the controller test passes, pushes to `master` publish `ghcr.io/scopeddlol/wardogs-controller:latest` and a commit-SHA tag. Version tags also publish a matching `v*` image and create a draft GitHub release containing both installers. Pull requests build and test the container but do not publish it.
+
+The Compose file pulls the GHCR image by default. Set `CONTROLLER_IMAGE` in `.env` to a version tag or an image from your fork. If the package is private, authenticate the Docker host with GitHub before `docker compose pull`; the package owner can make it public in GitHub package settings. To build from local source instead, run `docker compose -f compose.yaml -f compose.build.yaml up -d --build`. The test workflow always builds from source before publishing.
