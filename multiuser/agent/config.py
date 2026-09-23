@@ -50,8 +50,8 @@ class Settings:
     reporting_enabled: bool = False
     start_when_game_runs: bool = True
     capture_region: str = '0,0.65,1,1'
-    team_region: str = '0.960,0.925,0.990,0.965'
-    score_region: str = '0.0169,0.9139,0.1497,0.9514'
+    team_region: str = '0.967,0.962,0.987,0.994'
+    score_region: str = '0.0169,0.925,0.1497,0.958'
 
     def validate(self, paired=False):
         self.url = normalize_url(self.url)
@@ -80,6 +80,13 @@ def load(path=None):
         raise ValueError('Saved agent settings are invalid.')
     values={}
     defaults=Settings()
+    # Carry the corrected HUD boxes into existing installations only when
+    # the user has not calibrated them away from the original defaults.
+    old_regions={'team_region':'0.960,0.925,0.990,0.965',
+                 'score_region':'0.0169,0.9139,0.1497,0.9514'}
+    for name, old in old_regions.items():
+        if raw.get(name)==old:
+            raw[name]=getattr(defaults,name)
     for field in fields(Settings):
         if field.name=='token':continue
         # Older agents used auto_start for the saved on/off choice.

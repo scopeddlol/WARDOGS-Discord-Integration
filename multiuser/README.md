@@ -16,13 +16,13 @@ The controller maintains **one shared Discord message containing one embed**. Te
 
 - Docker controller published to `ghcr.io/scopeddlol/wardogs-controller:latest`, persistent SQLite database and private image storage.
 - PIN pairing, per-agent credentials, enable/disable and revocation controls.
-- Windows agent with a saved reporting switch, game process detection, tray controls, startup preference, monitor selection, OCR calibration, and privacy switches.
+- Windows agent with a saved reporting switch, game process detection, WARDOGS-only window capture, tray controls, startup preference, OCR calibration, and privacy switches.
 - Cards, compact and minimal presets; editable title, links, description, color, timestamp, author, footer, player templates, and ordered custom fields.
 - Main image, thumbnail, author icon and footer icon from authenticated uploads or HTTPS URLs.
 - Coalesced message edits, reconnection, stale-player handling and saved message identity across restarts.
 
 Agents open no inbound ports. The provided Compose file publishes no host ports; the controller is reachable through your existing reverse proxy on its Docker network. Use one controller instance / one worker per data volume.
 
-This displays the current status and scores exposed by the game's OCR integration, not historical statistics or a game API. Screenshots stay on the player's computer. Game updates, screen scaling and occlusion can affect OCR. The Windows installer is unsigned.
+This displays the current status and scores exposed by the game's OCR integration, not historical statistics or a game API. Screenshots stay on the player's computer. Minimized windows may stop producing frames; the last reading remains until WARDOGS can be captured again or closes. Game updates and screen scaling can affect OCR. The Windows installer is unsigned.
 
 Both Windows installers are built by the same GitHub Actions workflow, and version tags produce a draft release with both files. [Build and verification](docs/BUILDING.md) · [Third-party notices](docs/THIRD_PARTY.md)

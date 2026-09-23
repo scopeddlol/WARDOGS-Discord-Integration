@@ -59,8 +59,9 @@ async function refresh(initial=false) {
   if(!agents.length)$('players').append(node('div','empty','No players yet. Generate your first pairing PIN above.'));
   agents.forEach(player=>{
     const row=node('div','player'), info=node('div'), headline=node('div');
-    headline.append(node('strong','',player.username),node('span','connection',player.connection.replaceAll('_',' ')));
-    info.append(headline,node('p','muted',player.status.details||player.status.activity));
+    const presence=player.connection==='connected'?'Online':player.connection==='offline'?'Offline':'Connection lost';
+    headline.append(node('strong','',player.username),node('span','connection',presence));
+    info.append(headline,node('p','muted',player.connection==='offline'?'Offline':player.connection==='disconnected'?'Connection lost':player.status.details||player.status.activity));
     if(player.status.team||player.status.scores)info.append(node('div','small muted',[player.status.team,(player.status.scores||[]).join(' / ')].filter(Boolean).join(' · ')));
     const controls=node('div','player-actions');
     controls.append(action(player.enabled?'Disable':'Enable',async()=>{

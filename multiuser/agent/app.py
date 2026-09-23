@@ -45,18 +45,18 @@ def ocr_path():
 class Window(QMainWindow):
     def __init__(self,smoke=False):
         super().__init__()
-        self.events=queue.Queue();self.stop_event=threading.Event();self.worker=None;self.busy=False;self.quitting=False;self.tray=None
+        self.events=queue.Queue();self.stop_event=threading.Event();self.worker=None;self.busy=False;self.quitting=False;self.tray=None;self.last_activity=''
         self.auto_blocked=False;self.next_game_check=0
         error=None
         try:self.settings=config.Settings() if smoke else config.load()
         except (ValueError,TypeError,OSError) as exc:self.settings=config.Settings();error='Saved settings could not be loaded. Pair again. '+str(exc)
         self.setWindowTitle('WARDOGS Agent');self.setWindowIcon(QIcon(str(config.resources()/'agent'/'tray_icon.png')))
-        self.resize(860,800);self.setMinimumSize(740,700)
+        self.resize(900,800);self.setMinimumSize(760,700)
         root=QWidget();layout=QVBoxLayout(root);layout.setContentsMargins(28,22,28,22);layout.setSpacing(14)
-        layout.addWidget(label('WARDOGS / CONNECTED AGENT','eyebrow'))
-        layout.addWidget(label('Your squad. One connection.','heading'))
-        layout.addWidget(label('Pair with your host. Choose your stats. Your controller handles Discord.','muted'))
-        self.status=label('Reporting is off','status');layout.addWidget(self.status)
+        layout.addWidget(label('WARDOGS  /  AGENT','eyebrow'))
+        layout.addWidget(label('Your game, connected.','heading'))
+        layout.addWidget(label('Capture WARDOGS. Choose what to share. Your controller handles Discord.','muted'))
+        self.status=label('Offline','status');layout.addWidget(self.status)
         controls=QHBoxLayout();self.start_button=button('Enable reporting',self.start,True);self.stop_button=button('Disable reporting',self.stop);self.stop_button.setEnabled(False)
         self.save_button=button('Save settings',self.save)
         controls.addWidget(self.start_button);controls.addWidget(self.stop_button);controls.addStretch();controls.addWidget(self.save_button);layout.addLayout(controls)
@@ -108,14 +108,10 @@ class Window(QMainWindow):
 
     def capture_page(self):
         layout=self.page('Capture');layout.addWidget(label('03  GAME DETECTION','eyebrow'))
-        layout.addWidget(label('Open the pause menu briefly after joining a match. Set Interface → Faction to Always On for faction detection. Automatic reading pauses when WARDOGS is in the background.','muted'))
+        layout.addWidget(label('The agent captures only the WARDOGS window, even behind other apps. If minimized, the last reading stays visible until capture resumes. Open the pause menu briefly to reveal server details. Set Interface → Faction to Always On for faction detection.','muted'))
         form=QFormLayout();self.monitor=QComboBox()
-        try:
-            import mss
-            with mss.MSS() as capture:
-                for i,m in enumerate(capture.monitors[1:],1):self.monitor.addItem(f'Display {i} · {m["width"]} × {m["height"]}',i)
-        except Exception:self.monitor.addItem('No display available',0)
-        self.monitor.setCurrentIndex(max(0,self.monitor.findData(self.settings.monitor)));form.addRow('Game display',self.monitor)
+        self.monitor.addItem('WARDOGS window · automatic',1)
+        form.addRow('Capture source',label('WARDOGS window · automatic','muted'))
         interval=QSpinBox();interval.setRange(2,60);interval.setValue(self.settings.poll_seconds);self.inputs['poll_seconds']=interval;form.addRow('Scan every (seconds)',interval);layout.addLayout(form)
         layout.addWidget(button('Adjust capture boxes…',self.calibrate));layout.addWidget(button('Read screen in 5 seconds',self.preview))
         self.preview_result=label('Local test only. Nothing is sent to the controller.','muted');layout.addWidget(self.preview_result);layout.addStretch()
@@ -221,7 +217,7 @@ class Window(QMainWindow):
         except OSError as error:self.activity.appendPlainText('Could not remove Windows startup: '+str(error))
         self.stop_event.set();self.lock(self.worker is not None)
         if self.worker:self.status.setText('Stopping OCR · notifying controller you are offline…')
-        else:self.status.setText('Reporting disabled · offline');self.notify_offline()
+        else:self.status.setText('Offline');self.notify_offline()
 
     def notify_offline(self):
         if not self.settings.token:return
@@ -265,7 +261,8 @@ class Window(QMainWindow):
         while not self.events.empty():
             kind,value=self.events.get_nowait()
             if kind=='status':
-                self.activity.appendPlainText(value)
+                if value!=self.last_activity:
+                    self.activity.appendPlainText(value);self.last_activity=value
                 if not self.stop_event.is_set() or value.startswith('Offline update'):self.status.setText(value)
                 if self.tray:self.tray.setToolTip(('WARDOGS Agent · '+value)[:127])
             elif kind=='preview':self.preview_result.setText(value)
@@ -285,7 +282,7 @@ class Window(QMainWindow):
                 self.lock(False)
                 if value=='denied':self.status.setText('Controller denied access · reporting disabled')
                 elif value=='error':self.status.setText('Reporting stopped after an error · check Activity')
-                else:self.status.setText('Reporting enabled · waiting for WARDOGS' if self.settings.reporting_enabled else 'Reporting disabled · offline')
+                else:self.status.setText('Waiting for WARDOGS' if self.settings.reporting_enabled else 'Offline')
                 if self.tray:self.tray.setToolTip('WARDOGS Agent · '+('waiting for WARDOGS' if self.settings.reporting_enabled else 'offline'))
         self.check_game()
         if self.quitting and not self.worker and not self.busy:
@@ -303,6 +300,7 @@ class Window(QMainWindow):
 def smoke(window,directory):
     from PIL import Image,ImageDraw,ImageFont
     import pytesseract
+    from windows_capture import WindowsCapture  # Verify native capture DLL is bundled.
     directory.mkdir(parents=True,exist_ok=True);window.grab().save(str(directory/'agent.png'))
     try:
         pytesseract.pytesseract.tesseract_cmd=str(ocr_path());image=Image.new('RGB',(800,120),'white')
