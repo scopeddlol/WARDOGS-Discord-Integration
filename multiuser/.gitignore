@@ -9,3 +9,4 @@ vendor/
 build/
 dist/
 artifacts/
+!packaging/*.spec
