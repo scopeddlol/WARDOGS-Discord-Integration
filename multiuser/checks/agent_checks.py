@@ -64,10 +64,23 @@ def test_dpapi_settings_are_separate_and_encrypted(tmp_path):
     assert config.load(path)==settings
 
 
-def test_foreground_loss_does_not_return_old_server(monkeypatch):
-    detector=reporter.Detector(config.Settings());detector.latest={'activity':'match','details':'Old server','team':None,'scores':None}
-    monkeypatch.setattr(engine,'is_game_running',lambda:True);monkeypatch.setattr(engine,'is_game_foreground',lambda:False)
-    assert detector.read()['activity']=='waiting'
+def test_window_capture_unavailable_keeps_last_match_until_game_closes(monkeypatch):
+    from agent.window_capture import CaptureUnavailable
+    detector=reporter.Detector(config.Settings());detector.latest={'activity':'match','details':'East #12','team':'Lonestar','scores':[13,90,42]}
+    monkeypatch.setattr(engine,'is_game_running',lambda:True)
+    monkeypatch.setattr(engine,'capture_and_parse',lambda: (_ for _ in ()).throw(CaptureUnavailable('Minimized')))
+    assert detector.read()==detector.latest
+    monkeypatch.setattr(engine,'is_game_running',lambda:False)
+    assert detector.read()['activity']=='menu'
+
+
+def test_score_hud_marks_match_without_pause_menu(monkeypatch):
+    detector=reporter.Detector(config.Settings())
+    monkeypatch.setattr(engine,'is_game_running',lambda:True)
+    monkeypatch.setattr(engine,'capture_and_parse',lambda: ('',None,'Lonestar',(13,90,42)))
+    detector.read();detector.read()
+    result=detector.read()
+    assert result==dict(activity='match',details='In a match',team='Lonestar',scores=[13,90,42])
 
 
 def test_gui_pairing_locks_identity_and_collects_privacy(monkeypatch):
@@ -128,6 +141,19 @@ def test_old_auto_start_setting_migrates_to_enabled_game_detection(tmp_path):
     loaded=config.load(path)
     assert loaded.reporting_enabled and loaded.start_when_game_runs
     assert loaded.token=='credential'
+
+
+def test_original_hud_boxes_migrate_without_overwriting_custom_boxes(tmp_path,monkeypatch):
+    import json
+    monkeypatch.setattr(config,'protect_token',lambda value,decrypt=False:value)
+    path=tmp_path/'settings.json'
+    path.write_text(json.dumps({'score_region':'0.0169,0.9139,0.1497,0.9514',
+                                'team_region':'0.960,0.925,0.990,0.965'}),encoding='utf-8')
+    loaded=config.load(path)
+    assert loaded.score_region==config.Settings().score_region
+    assert loaded.team_region==config.Settings().team_region
+    path.write_text(json.dumps({'score_region':'0.1,0.2,0.3,0.4'}),encoding='utf-8')
+    assert config.load(path).score_region=='0.1,0.2,0.3,0.4'
 
 
 def test_gui_enable_waits_for_game_and_disable_stops_worker(monkeypatch):

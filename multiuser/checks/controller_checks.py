@@ -247,7 +247,7 @@ def test_explicit_offline_is_not_a_timeout(tmp_path):
     store.expire(90)
     row=store.roster()[0]
     assert row['connection']=='offline'
-    assert row['status']=={'activity':'offline','details':'Reporting disabled','team':None,'scores':None}
+    assert row['status']=={'activity':'offline','details':'Offline','team':None,'scores':None}
     assert store.snapshot()['agents'][0]['connection']=='offline'
 
 

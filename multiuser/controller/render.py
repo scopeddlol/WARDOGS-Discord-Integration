@@ -79,20 +79,25 @@ def render(layout, agents, now):
     player_fields, visible = [], []
     for player in candidates[:layout.max_players]:
         state = player['status']
-        scores = state.get('scores')
         connection = player.get('connection', 'disconnected')
-        values = {'username': safe(player['username']), 'status': safe(state.get('details') or state['activity'].capitalize()),
-                  'team': safe(state.get('team') or ''), 'scores': '🔵 {}  🔴 {}  🟢 {}'.format(*scores) if scores else '',
-                  'connection': connection.replace('_', ' ').capitalize(), 'updated': timestamp(player.get('last_seen')),
+        scores = state.get('scores') if connection == 'connected' else None
+        team = state.get('team') if connection == 'connected' else None
+        public_status = ('Offline' if connection == 'offline' else
+                         'Connection lost' if connection == 'disconnected' else
+                         state.get('details') or state['activity'].capitalize())
+        values = {'username': safe(player['username']), 'status': safe(public_status),
+                  'team': safe(team or ''), 'scores': '🔵 {}  🔴 {}  🟢 {}'.format(*scores) if scores else '',
+                  'connection': ('Online' if connection == 'connected' else 'Offline' if connection == 'offline' else 'Connection lost'),
+                  'updated': timestamp(player.get('last_seen')),
                   'icon': '🟢' if connection == 'connected' else '⚫'}
-        details = state.get('details', '')
+        details = state.get('details', '') if connection == 'connected' else ''
         server_id = re.search(r'ID ([0-9 -]+)', details)
         queued = re.search(r'position (\d+) of (\d+)', details)
         server = re.sub(r'\s*· ID [0-9 -]+$', '', details) if state['activity'] == 'match' else ''
         queue_server = re.search(r'^Queued for (.*?) \(position', details)
         if queue_server:
             server = queue_server.group(1)
-        values.update(activity=state['activity'].capitalize(), server=safe(server),
+        values.update(activity=(state['activity'].capitalize() if connection == 'connected' else public_status), server=safe(server),
                       server_id=safe(server_id.group(1).strip()) if server_id else '',
                       queue_position=queued.group(1) if queued else '', queue_total=queued.group(2) if queued else '',
                       lonestar_score=str(scores[0]) if scores else '', valkyra_score=str(scores[1]) if scores else '',
@@ -146,11 +151,11 @@ def sample_players(count, now):
     for i in range(count):
         activity = ['match', 'match', 'queue', 'match', 'menu'][i % 5]
         online = i % 7 != 6
-        status = {'activity': activity if online else 'disconnected',
+        status = {'activity': activity if online else 'offline',
                   'details': ('East #145 · ID 469-618' if activity == 'match' else
-                              'Queued for Central #1 (position 3 of 12)' if activity == 'queue' else 'In the main menu') if online else 'Agent disconnected',
+                              'Queued for Central #1 (position 3 of 12)' if activity == 'queue' else 'In the main menu') if online else 'Offline',
                   'team': ['Lonestar', 'Valkyra', 'Manticore'][i % 3] if activity == 'match' and online else None,
                   'scores': [125, 108, 94] if activity == 'match' and online else None}
         players.append({'id': str(i), 'username': names[i] if i < len(names) else f'Player {i+1}',
-                        'status': status, 'connection': 'connected' if online else 'disconnected', 'last_seen': now - i * 4})
+                        'status': status, 'connection': 'connected' if online else 'offline', 'last_seen': now - i * 4})
     return players

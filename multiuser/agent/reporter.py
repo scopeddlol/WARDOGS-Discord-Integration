@@ -3,6 +3,7 @@ import re
 import time
 from .transport import AccessDenied,ControllerClient
 from . import engine
+from .window_capture import CaptureUnavailable
 
 
 def filtered(settings,status,team=None,scores=None):
@@ -28,7 +29,7 @@ class Detector:
         self.count=0
         self.score_pending=None
         self.score_count=0
-        self.latest=dict(activity='waiting',details='Waiting for a readable game screen',team=None,scores=None)
+        self.latest=dict(activity='waiting',details='Waiting for WARDOGS',team=None,scores=None)
 
     def read(self):
         if not engine.is_game_running():
@@ -37,11 +38,11 @@ class Detector:
             self.count=self.score_count=0
             self.latest=filtered(self.settings,engine.NOT_IN_GAME)
             return self.latest
-        if not engine.is_game_foreground():
-            return dict(activity='waiting',details='Game in background · detection paused',team=None,scores=None)
-        try:_,server,team,scores=engine.capture_and_parse(require_foreground=True)
-        except engine.CaptureInterrupted:
-            return dict(activity='waiting',details='Game in background · detection paused',team=None,scores=None)
+        try:_,server,team,scores=engine.capture_and_parse()
+        except (engine.CaptureInterrupted,CaptureUnavailable):
+            return self.latest
+        if scores is not None and server is None and (self.server is None or self.server==engine.NOT_IN_GAME):
+            server='In a match'
         if server is not None and server!=self.server:
             self.server=server;self.team=None;self.scores=None;self.score_pending=None;self.score_count=0
         if team is not None:self.team=team
@@ -71,8 +72,8 @@ def run(settings,ocr,stop,emit,client_factory=ControllerClient):
                     emit('Reporting enabled · connected to controller')
                 try:payload=detector.read()
                 except Exception:
-                    payload=dict(activity='waiting',details='Screen reading unavailable',team=None,scores=None)
-                    emit('Screen reading failed. Check capture settings and the OCR engine.')
+                    payload=detector.latest
+                    emit('Capture temporarily unavailable · keeping last status')
                 if stop.is_set():break
                 if time.monotonic()>=next_send:
                     sequence+=1
@@ -90,6 +91,7 @@ def run(settings,ocr,stop,emit,client_factory=ControllerClient):
                 # overwrite newer reports. A server restart also preserves sessions.
     finally:
         if session and stop.is_set():
-            try:client.report(session,sequence+1,dict(activity='offline',details='Reporting disabled',team=None,scores=None))
+            try:client.report(session,sequence+1,dict(activity='offline',details='Offline',team=None,scores=None))
             except (AccessDenied,ConnectionError,ValueError):pass
+        engine.close_capture()
         client.close()

@@ -101,7 +101,7 @@ class Store:
                 if hmac.compare_digest(row['pin_hash'], self.pin_hash(key, pin)):
                     token = secrets.token_urlsafe(32)
                     db.execute('UPDATE agents SET token_hash=?,enabled=1,session_id=NULL,sequence=0,connection=?,status=? WHERE name_key=?',
-                               (digest(token), 'offline', state('offline', 'Reporting is off'), key))
+                               (digest(token), 'offline', state('offline', 'Offline'), key))
                     db.execute('DELETE FROM pairings WHERE name_key=?', (key,))
                     agent = db.execute('SELECT id,username FROM agents WHERE name_key=?', (key,)).fetchone()
                     result = {'agent_id': agent['id'], 'username': agent['username'], 'token': token, 'heartbeat_seconds': 15}
@@ -132,6 +132,8 @@ class Store:
         payload = report.model_dump(exclude={'session_id', 'sequence'})
         if payload['activity'] == 'paused':
             payload['activity'] = 'offline'  # Earlier installed agents used this name.
+        if payload['activity'] == 'offline':
+            payload['details'] = 'Offline'
         if payload['activity'] != 'match':
             payload['team'], payload['scores'] = None, None
         status = json.dumps(payload, sort_keys=True)
@@ -157,7 +159,7 @@ class Store:
             row = self.authenticate(db, token)
             if row['connection'] != 'offline' or row['session_id']:
                 db.execute('UPDATE agents SET session_id=NULL,connection=?,status=?,last_seen=? WHERE id=?',
-                           ('offline', state('offline', 'Reporting disabled'), self.clock(), row['id']))
+                           ('offline', state('offline', 'Offline'), self.clock(), row['id']))
                 db.execute('UPDATE board SET revision=revision+1 WHERE id=1')
         return {'ok': True}
 
@@ -173,13 +175,13 @@ class Store:
                 db.execute('DELETE FROM pairings WHERE name_key=?', (row['name_key'],))
             else:
                 db.execute('UPDATE agents SET enabled=?,session_id=NULL,connection=?,status=? WHERE id=?',
-                           (int(enabled), 'offline', state('offline', 'Ready to reconnect' if enabled else 'Reporting disabled by controller host'), agent_id))
+                           (int(enabled), 'offline', state('offline', 'Offline'), agent_id))
             db.execute('UPDATE board SET revision=revision+1 WHERE id=1')
 
     def expire(self, seconds):
         with self.db() as db:
             cursor = db.execute('UPDATE agents SET connection=?,status=? WHERE connection=? AND last_seen<?',
-                                ('disconnected', state('disconnected', 'Agent disconnected'), 'connected', self.clock() - seconds))
+                                ('disconnected', state('disconnected', 'Connection lost'), 'connected', self.clock() - seconds))
             if cursor.rowcount:
                 db.execute('UPDATE board SET revision=revision+1 WHERE id=1')
 

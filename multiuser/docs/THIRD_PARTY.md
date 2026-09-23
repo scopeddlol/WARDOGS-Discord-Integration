@@ -19,7 +19,7 @@ The project is MIT licensed. The Windows installer redistributes independently l
   for source distribution references, including GPL-licensed JBIG-KIT, LGPL libiconv, and
   the GCC runtime exception. Windows build recipes: https://github.com/msys2/MINGW-packages.
   This software is based in part on the work of the Independent JPEG Group.
-- Pillow, mss, psutil, pytesseract, requests and their dependencies:
+- Pillow, mss, psutil, pytesseract, requests, windows-capture, NumPy, OpenCV and their dependencies:
   their installed package metadata and license/notice files accompany the app under
   `_internal/licenses/dependencies`.
 - PyInstaller: GPL with a distribution exception for bundled applications.

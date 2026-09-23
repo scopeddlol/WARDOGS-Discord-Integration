@@ -17,11 +17,12 @@ log = logging.getLogger('wardogs-agent')
 GAME_PROCESS_SUBSTRING = 'wardogsclient'
 DISPLAY_NAME = 'Player'
 CAPTURE_REGION = '0,0.65,1,1'
-TEAM_ICON_REGION = '0.960,0.925,0.990,0.965'
-SCORE_REGION = '0.0169,0.9139,0.1497,0.9514'
+TEAM_ICON_REGION = '0.967,0.962,0.987,0.994'
+SCORE_REGION = '0.0169,0.925,0.1497,0.958'
 MONITOR_INDEX = 1
 DESKTOP_SETTINGS = None
 _warned_bad_monitor = False
+_game_capture = None
 
 
 def configure(settings, ocr):
@@ -112,6 +113,28 @@ _warned_bad_monitor = False
 
 class CaptureInterrupted(Exception):
     """The game lost focus while a multi-region reading was in progress."""
+
+
+def close_capture():
+    global _game_capture
+    if _game_capture is not None:
+        _game_capture.close()
+        _game_capture = None
+
+
+def capture_game_frame():
+    global _game_capture
+    from .window_capture import GameCapture
+    if _game_capture is None:
+        _game_capture = GameCapture()
+    return _game_capture.read()
+
+
+def crop_fraction(frame, region):
+    left, top, right, bottom = parse_region(region)
+    return frame.crop((int(frame.width * left), int(frame.height * top),
+                       max(int(frame.width * left) + 1, int(frame.width * right)),
+                       max(int(frame.height * top) + 1, int(frame.height * bottom))))
 
 
 def grab_region(region_str: str = CAPTURE_REGION, require_foreground=False) -> Image.Image:
@@ -334,7 +357,12 @@ def capture_and_parse(require_foreground=False):
     poll. Callers combine the latest known value of each themselves.
     scores is the (lonestar, valkyra, manticore) HUD scoreboard tuple, or
     None if it isn't readable right now."""
-    img = preprocess(grab_region(CAPTURE_REGION, require_foreground))
+    if DESKTOP_SETTINGS is not None and sys.platform == 'win32':
+        frame = capture_game_frame()
+        region = lambda box: crop_fraction(frame, box)
+    else:
+        region = lambda box: grab_region(box, require_foreground)
+    img = preprocess(region(CAPTURE_REGION))
     text = pytesseract.image_to_string(img, timeout=10)
     if not text.strip():
         # Default page segmentation (--psm 3, full automatic layout
@@ -345,8 +373,9 @@ def capture_and_parse(require_foreground=False):
         # pass found nothing at all.
         text = pytesseract.image_to_string(img, config="--psm 6", timeout=10)
     status = determine_status(text)
-    team = detect_team(grab_region(TEAM_ICON_REGION, require_foreground)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.team else None
-    scores = read_scores(grab_region(SCORE_REGION, require_foreground)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.scores else None
+    team = detect_team(region(TEAM_ICON_REGION)) if DESKTOP_SETTINGS is None or DESKTOP_SETTINGS.team else None
+    # The score HUD is also a match signal even when score sharing is off.
+    scores = read_scores(region(SCORE_REGION))
     return text, status, team, scores
 
 
